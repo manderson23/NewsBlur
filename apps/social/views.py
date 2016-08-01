@@ -4,6 +4,7 @@ import zlib
 import random
 import re
 from bson.objectid import ObjectId
+from mongoengine.queryset import NotUniqueError
 from django.shortcuts import get_object_or_404, render_to_response
 from django.core.urlresolvers import reverse
 from django.contrib.auth.models import User
@@ -46,7 +47,7 @@ def load_social_stories(request, user_id, username=None):
     page           = request.REQUEST.get('page')
     order          = request.REQUEST.get('order', 'newest')
     read_filter    = request.REQUEST.get('read_filter', 'all')
-    query          = request.REQUEST.get('query')
+    query          = request.REQUEST.get('query', '').strip()
     stories        = []
     message        = None
     
@@ -131,7 +132,9 @@ def load_social_stories(request, user_id, username=None):
         story['long_parsed_date'] = format_story_link_date__long(shared_date, nowtz)
         
         story['read_status'] = 1
-        if (read_filter == 'all' or query) and socialsub:
+        if story['story_date'] < user.profile.unread_cutoff:
+            story['read_status'] = 1
+        elif (read_filter == 'all' or query) and socialsub:
             story['read_status'] = 1 if story['story_hash'] not in unread_story_hashes else 0
         elif read_filter == 'unread' and socialsub:
             story['read_status'] = 0
@@ -481,8 +484,10 @@ def load_social_page(request, user_id, username=None, **kwargs):
         'social_services': social_services,
     }
 
-    logging.user(request, "~FYLoading ~FMsocial ~SBpage~SN~FY: ~SB%s%s" % (
-        social_profile.title[:22], ('~SN/p%s' % page) if page > 1 else ''))
+    logging.user(request, "~FYLoading ~FMsocial page~FY: ~SB%s%s ~FM%s/%s" % (
+        social_profile.title[:22], ('~SN/p%s' % page) if page > 1 else '',
+        request.META.get('HTTP_USER_AGENT', "")[:40],
+        request.META.get('HTTP_X_FORWARDED_FOR', "")))
     if format == 'html':
         template = 'social/social_stories.xhtml'
     else:
@@ -546,6 +551,13 @@ def mark_story_as_shared(request):
             'message': 'Could not find the original story and no copies could be found.'
         })
     
+    feed = Feed.get_by_id(feed_id)
+    if feed and feed.is_newsletter:
+        return json.json_response(request, {
+            'code': -1, 
+            'message': 'You cannot share newsletters. Somebody could unsubscribe you!'
+        })
+        
     if not request.user.profile.is_premium and MSharedStory.feed_quota(request.user.pk, feed_id, story.story_hash):
         return json.json_response(request, {
             'code': -1, 
@@ -571,7 +583,7 @@ def mark_story_as_shared(request):
         }
         try:
             shared_story = MSharedStory.objects.create(**story_db)
-        except MSharedStory.NotUniqueError:
+        except NotUniqueError:
             shared_story = MSharedStory.objects.get(story_guid=story_db['story_guid'],
                                                     user_id=story_db['user_id'])
         except MSharedStory.DoesNotExist:
@@ -912,7 +924,10 @@ def profile(request):
 @json.json_view
 def load_user_profile(request):
     social_profile = MSocialProfile.get_user(request.user.pk)
-    social_services, _ = MSocialServices.objects.get_or_create(user_id=request.user.pk)
+    try:
+        social_services = MSocialServices.objects.get(user_id=request.user.pk)
+    except MSocialServices.DoesNotExist:
+        social_services = MSocialServices.objects.create(user_id=request.user.pk)
     
     logging.user(request, "~BB~FRLoading social profile and blurblog settings")
     
@@ -999,7 +1014,7 @@ def load_follow_requests(request):
         'request_profiles': request_profiles,
     }
 
-@ratelimit(minutes=1, requests=10)
+@ratelimit(minutes=1, requests=100)
 @json.json_view
 def load_user_friends(request):
     user = get_user(request.user)
@@ -1169,10 +1184,14 @@ def like_comment(request):
     
     if comment_user_id == request.user.pk:
         return json.json_response(request, {'code': -1, 'message': 'You cannot favorite your own shared story comment.'})
+
+    try:
+        shared_story = MSharedStory.objects.get(user_id=comment_user_id, 
+                                                story_feed_id=feed_id, 
+                                                story_guid=story_id)
+    except MSharedStory.DoesNotExist:
+        return json.json_response(request, {'code': -1, 'message': 'The shared comment cannot be found.'})
         
-    shared_story = MSharedStory.objects.get(user_id=comment_user_id, 
-                                            story_feed_id=feed_id, 
-                                            story_guid=story_id)
     shared_story.add_liking_user(request.user.pk)
     comment, profiles = shared_story.comment_with_author_and_profiles()
 
@@ -1220,7 +1239,6 @@ def remove_like_comment(request):
                                             story_guid=story_id)
     shared_story.remove_liking_user(request.user.pk)
     comment, profiles = shared_story.comment_with_author_and_profiles()
-    
     comment_user = User.objects.get(pk=shared_story.user_id)
     logging.user(request, "~BB~FMRemoving like on comment by ~SB%s~SN: %s" % (
         comment_user.username, 
@@ -1347,6 +1365,8 @@ def load_social_statistics(request, social_user_id, username=None):
     # Stories per month - average and month-by-month breakout
     stats['average_stories_per_month'] = social_profile.average_stories_per_month
     stats['story_count_history'] = social_profile.story_count_history
+    stats['story_hours_history'] = social_profile.story_hours_history
+    stats['story_days_history'] = social_profile.story_days_history
     
     # Subscribers
     stats['subscriber_count'] = social_profile.follower_count

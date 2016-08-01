@@ -8,16 +8,15 @@ import android.app.Activity;
 import android.app.ActionBar;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.graphics.Paint;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
-import android.graphics.drawable.BitmapDrawable;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Handler;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -27,9 +26,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.newsblur.R;
-import com.newsblur.activity.NewsBlurApplication;
+import com.newsblur.activity.*;
 
 public class UIUtils {
+
+    private UIUtils() {} // util class - no instances
 	
 	/*
 	 * Based on the RoundedCorners code from Square / Eric Burke's "Android UI" talk 
@@ -65,9 +66,9 @@ public class UIUtils {
 	 * used throughout Android. 
 	 * See: http://bit.ly/MfsAUZ (Romain Guy's comment)  
 	 */
-	public static int convertDPsToPixels(Context context, final int dps) {
-		final float scale = context.getResources().getDisplayMetrics().density;
-		return (int) (dps * scale + 0.5f);
+	public static int dp2px(Context context, int dp) {
+		float scale = context.getResources().getDisplayMetrics().density;
+		return (int) (dp * scale + 0.5f);
 	}
 
     public static float px2dp(Context context, int px) {
@@ -93,7 +94,7 @@ public class UIUtils {
      */
     public static void setCustomActionBar(Activity activity, String imageUrl, String title) { 
         ImageView iconView = setupCustomActionbar(activity, title);
-        ((NewsBlurApplication) activity.getApplicationContext()).getImageLoader().displayImage(imageUrl, iconView, false);
+        FeedUtils.imageLoader.displayImage(imageUrl, iconView, false);
     }
 
     public static void setCustomActionBar(Activity activity, int imageId, String title) { 
@@ -124,7 +125,7 @@ public class UIUtils {
                 activity.finish();
             }
         });
-        activity.getActionBar().setCustomView(v, new ActionBar.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.FILL_PARENT));
+        activity.getActionBar().setCustomView(v, new ActionBar.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
         return iconView;
     }
 
@@ -166,4 +167,79 @@ public class UIUtils {
             }
         });
     }
+
+    public static void startReadingActivity(FeedSet fs, String startingHash, Context context) {
+        Class activityClass;
+		if (fs.isAllSaved()) {
+            activityClass = SavedStoriesReading.class;
+        } else if (fs.getSingleSavedTag() != null) {
+            activityClass = SavedStoriesReading.class;
+        } else if (fs.isGlobalShared()) {
+            activityClass = GlobalSharedStoriesReading.class;
+        } else if (fs.isAllSocial()) {
+            activityClass = AllSharedStoriesReading.class;
+        } else if (fs.isAllNormal()) {
+            activityClass = AllStoriesReading.class;
+        } else if (fs.isFolder()) {
+            activityClass = FolderReading.class;
+        } else if (fs.getSingleFeed() != null) {
+            activityClass = FeedReading.class;
+        } else if (fs.getSingleSocialFeed() != null) {
+            activityClass = SocialFeedReading.class;
+        } else if (fs.isAllRead()) {
+            activityClass = ReadStoriesReading.class;
+        } else {
+            Log.e(UIUtils.class.getName(), "can't launch reading activity for unknown feedset type");
+            return;
+        }
+        Intent i = new Intent(context, activityClass);
+        i.putExtra(Reading.EXTRA_FEEDSET, fs);
+        i.putExtra(Reading.EXTRA_STORY_HASH, startingHash);
+        context.startActivity(i);
+    }
+
+    public static String getMemoryUsageDebug(Context context) {
+        String memInfo = " (";
+        android.app.ActivityManager activityManager = (android.app.ActivityManager) context.getSystemService(android.app.Activity.ACTIVITY_SERVICE);
+        int[] pids = new int[]{android.os.Process.myPid()};
+        android.os.Debug.MemoryInfo[] mi = activityManager.getProcessMemoryInfo(pids);
+        memInfo = memInfo + (mi[0].getTotalPss() / 1024) + "MB used)";
+        return memInfo;
+    }
+
+    @SuppressWarnings("deprecation")
+    public static int getColor(Context activity, int rid) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return activity.getResources().getColor(rid, activity.getTheme());
+        } else {
+            return activity.getResources().getColor(rid);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    public static Drawable getDrawable(Context activity, int rid) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return activity.getResources().getDrawable(rid, activity.getTheme());
+        } else {
+            return activity.getResources().getDrawable(rid);
+        }
+    }
+
+    /**
+     * Sets the background resource of a view, working around a platform bug that causes the declared
+     * padding to get reset.
+     */
+    public static void setViewBackground(View v, Drawable background) {
+        // due to a framework bug, the below modification of background resource also resets the declared
+        // padding on the view.  save a copy of said padding so it can be re-applied after the change.
+        int oldPadL = v.getPaddingLeft();
+        int oldPadT = v.getPaddingTop();
+        int oldPadR = v.getPaddingRight();
+        int oldPadB = v.getPaddingBottom();
+
+        v.setBackground(background);
+
+        v.setPadding(oldPadL, oldPadT, oldPadR, oldPadB);
+    }
+
 }

@@ -17,24 +17,24 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import butterknife.ButterKnife;
-import butterknife.FindView;
+import butterknife.Bind;
 
 import com.newsblur.R;
 import com.newsblur.activity.Login;
 import com.newsblur.activity.Main;
 import com.newsblur.network.APIManager;
-import com.newsblur.network.domain.NewsBlurResponse;
+import com.newsblur.network.domain.LoginResponse;
 import com.newsblur.util.PrefsUtils;
 import com.newsblur.util.UIUtils;
 
 public class LoginProgressFragment extends Fragment {
 
 	private APIManager apiManager;
-	@FindView(R.id.login_logging_in) TextView updateStatus;
-    @FindView(R.id.login_retrieving_feeds) TextView retrievingFeeds;
-	@FindView(R.id.login_profile_picture) ImageView loginProfilePicture;
-	@FindView(R.id.login_feed_progress) ProgressBar feedProgress;
-    @FindView(R.id.login_logging_in_progress) ProgressBar loggingInProgress;
+	@Bind(R.id.login_logging_in) TextView updateStatus;
+    @Bind(R.id.login_retrieving_feeds) TextView retrievingFeeds;
+	@Bind(R.id.login_profile_picture) ImageView loginProfilePicture;
+	@Bind(R.id.login_feed_progress) ProgressBar feedProgress;
+    @Bind(R.id.login_logging_in_progress) ProgressBar loggingInProgress;
 	private LoginTask loginTask;
 	private String username;
 	private String password;
@@ -69,7 +69,7 @@ public class LoginProgressFragment extends Fragment {
 		return v;
 	}
 
-	private class LoginTask extends AsyncTask<Void, Void, NewsBlurResponse> {
+	private class LoginTask extends AsyncTask<Void, Void, LoginResponse> {
 		@Override
 		protected void onPreExecute() {
 			Animation a = AnimationUtils.loadAnimation(getActivity(), R.anim.text_up);
@@ -77,14 +77,15 @@ public class LoginProgressFragment extends Fragment {
 		}
 
 		@Override
-		protected NewsBlurResponse doInBackground(Void... params) {
-			NewsBlurResponse response = apiManager.login(username, password);
-			apiManager.updateUserProfile();
+		protected LoginResponse doInBackground(Void... params) {
+			LoginResponse response = apiManager.login(username, password);
+            // pre-load the profile iff the login was good
+			if (!response.isError()) apiManager.updateUserProfile();
 			return response;
 		}
 
 		@Override
-		protected void onPostExecute(NewsBlurResponse result) {
+		protected void onPostExecute(LoginResponse result) {
             Context c = getActivity();
             if (c == null) return; // we might have run past the lifecycle of the activity
 			if (!result.isError()) {
@@ -104,7 +105,7 @@ public class LoginProgressFragment extends Fragment {
                 Intent startMain = new Intent(getActivity(), Main.class);
                 c.startActivity(startMain);
 			} else {
-                UIUtils.safeToast(c, result.getErrorMessage(), Toast.LENGTH_LONG);
+                UIUtils.safeToast(c, result.getErrorMessage(c.getString(R.string.login_message_error)), Toast.LENGTH_LONG);
 				startActivity(new Intent(c, Login.class));
 			}
 		}

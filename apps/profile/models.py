@@ -3,8 +3,11 @@ import datetime
 import dateutil
 import stripe
 import hashlib
+import re
 import redis
+import uuid
 import mongoengine as mongo
+from pprint import pprint
 from django.db import models
 from django.db import IntegrityError
 from django.db.utils import DatabaseError
@@ -17,14 +20,15 @@ from django.core.mail import mail_admins
 from django.core.mail import EmailMultiAlternatives
 from django.core.urlresolvers import reverse
 from django.template.loader import render_to_string
-from apps.reader.models import UserSubscription
 from apps.rss_feeds.models import Feed, MStory, MStarredStory
-from apps.rss_feeds.tasks import NewFeeds
 from apps.rss_feeds.tasks import SchedulePremiumSetup
 from apps.feed_import.models import GoogleReaderImporter, OPMLExporter
+from apps.reader.models import UserSubscription
+from apps.reader.models import RUserStory
 from utils import log as logging
 from utils import json_functions as json
 from utils.user_functions import generate_secret_token
+from utils.feed_functions import chunks
 from vendor.timezones.fields import TimeZoneField
 from vendor.paypal.standard.ipn.signals import subscription_signup, payment_was_successful, recurring_payment
 from vendor.paypal.standard.ipn.signals import payment_was_flagged
@@ -95,6 +99,7 @@ class Profile(models.Model):
             print " ---> You must pass confirm=True to delete this user."
             return
         
+        logging.user(self.user, "Deleting user: %s / %s" % (self.user.email, self.user.profile.last_seen_ip))
         try:
             self.cancel_premium()
         except:
@@ -155,16 +160,9 @@ class Profile(models.Model):
         logging.user(self.user, "Deleting user: %s" % self.user)
         self.user.delete()
     
-    def check_if_spammer(self):
-        feed_opens = UserSubscription.objects.filter(user=self.user)\
-                     .aggregate(sum=Sum('feed_opens'))['sum']
-        feed_count = UserSubscription.objects.filter(user=self.user).count()
-        
-        if not feed_opens and not feed_count:
-            return True
-        
     def activate_premium(self, never_expire=False):
         from apps.profile.tasks import EmailNewPremium
+        
         EmailNewPremium.delay(user_id=self.user.pk)
         
         self.is_premium = True
@@ -189,7 +187,7 @@ class Profile(models.Model):
                      len(scheduled_feeds))
         SchedulePremiumSetup.apply_async(kwargs=dict(feed_ids=scheduled_feeds))
         
-        self.queue_new_feeds()
+        UserSubscription.queue_new_feeds(self.user)
         self.setup_premium_history()
         
         if never_expire:
@@ -224,7 +222,7 @@ class Profile(models.Model):
         self.user.save()
         self.send_new_user_queue_email()
         
-    def setup_premium_history(self, alt_email=None, check_premium=False):
+    def setup_premium_history(self, alt_email=None, check_premium=False, force_expiration=False):
         paypal_payments = []
         stripe_payments = []
         existing_history = PaymentHistory.objects.filter(user=self.user, 
@@ -277,17 +275,24 @@ class Profile(models.Model):
         last_year = datetime.datetime.now() - datetime.timedelta(days=364)
         recent_payments_count = 0
         oldest_recent_payment_date = None
+        free_lifetime_premium = False
         for payment in payment_history:
+            if payment.payment_amount == 0:
+                free_lifetime_premium = True
             if payment.payment_date > last_year:
                 recent_payments_count += 1
                 if not oldest_recent_payment_date or payment.payment_date < oldest_recent_payment_date:
                     oldest_recent_payment_date = payment.payment_date
         
-        if oldest_recent_payment_date:
+        if free_lifetime_premium:
+            self.premium_expire = None
+            self.save()
+        elif oldest_recent_payment_date:
             new_premium_expire = (oldest_recent_payment_date +
                                   datetime.timedelta(days=365*recent_payments_count))
             # Only move premium expire forward, never earlier. Also set expiration if not premium.
-            if ((check_premium and not self.premium_expire) or 
+            if (force_expiration or 
+                (check_premium and not self.premium_expire) or 
                 (self.premium_expire and new_premium_expire > self.premium_expire)):
                 self.premium_expire = new_premium_expire
                 self.save()
@@ -352,9 +357,10 @@ class Profile(models.Model):
         stripe_cancel = self.cancel_premium_stripe()
         return paypal_cancel or stripe_cancel
     
-    def cancel_premium_paypal(self):
+    def cancel_premium_paypal(self, second_most_recent_only=False):
         transactions = PayPalIPN.objects.filter(custom=self.user.username,
-                                                txn_type='subscr_signup')
+                                                txn_type='subscr_signup').order_by('-subscr_date')
+        
         if not transactions:
             return
         
@@ -366,14 +372,24 @@ class Profile(models.Model):
             'API_CA_CERTS': False,
         }
         paypal = PayPalInterface(**paypal_opts)
-        transaction = transactions[0]
+        if second_most_recent_only:
+            # Check if user has an active subscription. If so, cancel it because a new one came in.
+            if len(transactions) > 1:
+                transaction = transactions[1]
+            else:
+                return False
+        else:
+            transaction = transactions[0]
         profileid = transaction.subscr_id
         try:
             paypal.manage_recurring_payments_profile_status(profileid=profileid, action='Cancel')
         except PayPalAPIResponseError:
-            logging.user(self.user, "~FRUser ~SBalready~SN canceled Paypal subscription")
+            logging.user(self.user, "~FRUser ~SBalready~SN canceled Paypal subscription: %s" % profileid)
         else:
-            logging.user(self.user, "~FRCanceling Paypal subscription")
+            if second_most_recent_only:
+                logging.user(self.user, "~FRCanceling ~BR~FWsecond-oldest~SB~FR Paypal subscription: %s" % profileid)
+            else:
+                logging.user(self.user, "~FRCanceling Paypal subscription: %s" % profileid)
         
         return True
         
@@ -392,34 +408,130 @@ class Profile(models.Model):
         
         return True
     
-    def queue_new_feeds(self, new_feeds=None):
-        if not new_feeds:
-            new_feeds = UserSubscription.objects.filter(user=self.user, 
-                                                        feed__fetched_once=False, 
-                                                        active=True).values('feed_id')
-            new_feeds = list(set([f['feed_id'] for f in new_feeds]))
-        logging.user(self.user, "~BB~FW~SBQueueing NewFeeds: ~FC(%s) %s" % (len(new_feeds), new_feeds))
-        size = 4
-        for t in (new_feeds[pos:pos + size] for pos in xrange(0, len(new_feeds), size)):
-            NewFeeds.apply_async(args=(t,), queue="new_feeds")
-
-    def refresh_stale_feeds(self, exclude_new=False):
-        stale_cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
-        stale_feeds  = UserSubscription.objects.filter(user=self.user, active=True, feed__last_update__lte=stale_cutoff)
-        if exclude_new:
-            stale_feeds = stale_feeds.filter(feed__fetched_once=True)
-        all_feeds    = UserSubscription.objects.filter(user=self.user, active=True)
+    @classmethod
+    def clear_dead_spammers(self, days=30, confirm=False):
+        users = User.objects.filter(date_joined__gte=datetime.datetime.now()-datetime.timedelta(days=days)).order_by('-date_joined')
+        usernames = set()
+        numerics = re.compile(r'[0-9]+')
+        for user in users:
+            opens = UserSubscription.objects.filter(user=user).aggregate(sum=Sum('feed_opens'))['sum']
+            reads = RUserStory.read_story_count(user.pk)
+            has_numbers = numerics.search(user.username)
+            if opens is None and not reads and has_numbers:
+                usernames.add(user.username)
+                print " ---> Numerics: %-20s %-30s %-6s %-6s" % (user.username, user.email, opens, reads)
+            elif not user.profile.last_seen_ip:
+                usernames.add(user.username)
+                print " ---> No IP: %-20s %-30s %-6s %-6s" % (user.username, user.email, opens, reads)
         
-        logging.user(self.user, "~FG~BBRefreshing stale feeds: ~SB%s/%s" % (
-            stale_feeds.count(), all_feeds.count()))
-
-        for sub in stale_feeds:
-            sub.feed.fetched_once = False
-            sub.feed.save()
+        if not confirm: return usernames
         
-        if stale_feeds:
-            stale_feeds = list(set([f.feed_id for f in stale_feeds]))
-            self.queue_new_feeds(new_feeds=stale_feeds)
+        for username in usernames:
+            u = User.objects.get(username=username)
+            u.profile.delete_user(confirm=True)
+
+        RNewUserQueue.user_count()
+        RNewUserQueue.activate_all()
+        
+    @classmethod
+    def count_feed_subscribers(self, feed_id=None, user_id=None, verbose=True):
+        SUBSCRIBER_EXPIRE = datetime.datetime.now() - datetime.timedelta(days=settings.SUBSCRIBER_EXPIRE)
+        r = redis.Redis(connection_pool=settings.REDIS_FEED_SUB_POOL)
+        entire_feed_counted = False
+        
+        if verbose:
+            feed = Feed.get_by_id(feed_id)
+            logging.debug("   ---> [%-30s] ~SN~FBCounting subscribers for feed:~SB~FM%s~SN~FB user:~SB~FM%s" % (feed.title[:30], feed_id, user_id))
+        
+        if feed_id:
+            feed_ids = [feed_id]
+        elif user_id:
+            feed_ids = [us['feed_id'] for us in UserSubscription.objects.filter(user=user_id, active=True).values('feed_id')]
+        else:
+            assert False, "feed_id or user_id required"
+
+        if feed_id and not user_id:
+            entire_feed_counted = True
+            
+        for feed_id in feed_ids:
+            total = 0
+            premium = 0
+            active = 0
+            active_premium = 0
+            key = 's:%s' % feed_id
+            premium_key = 'sp:%s' % feed_id
+            
+            if user_id:
+                active = UserSubscription.objects.get(feed_id=feed_id, user_id=user_id).only('active').active
+                user_ids = dict([(user_id, active)])
+            else:
+                user_ids = dict([(us.user_id, us.active) 
+                                 for us in UserSubscription.objects.filter(feed_id=feed_id).only('user', 'active')])
+            profiles = Profile.objects.filter(user_id__in=user_ids.keys()).values('user_id', 'last_seen_on', 'is_premium')
+            feed = Feed.get_by_id(feed_id)
+            
+            if entire_feed_counted:
+                r.delete(key)
+                r.delete(premium_key)
+            
+            for profiles_group in chunks(profiles, 20):
+                pipeline = r.pipeline()
+                for profile in profiles_group:
+                    last_seen_on = int(profile['last_seen_on'].strftime('%s'))
+                    muted_feed = not bool(user_ids[profile['user_id']])
+                    if muted_feed:
+                        last_seen_on = 0
+                    pipeline.zadd(key, profile['user_id'], last_seen_on)
+                    total += 1
+                    if profile['is_premium']:
+                        pipeline.zadd(premium_key, profile['user_id'], last_seen_on)
+                        premium += 1
+                    else:
+                        pipeline.zrem(premium_key, profile['user_id'])
+                    if profile['last_seen_on'] > SUBSCRIBER_EXPIRE and not muted_feed:
+                        active += 1
+                        if profile['is_premium']:
+                            active_premium += 1
+                
+                pipeline.execute()
+            
+            if entire_feed_counted:
+                now = int(datetime.datetime.now().strftime('%s'))
+                r.zadd(key, -1, now)
+                r.expire(key, settings.SUBSCRIBER_EXPIRE*24*60*60)
+                r.zadd(premium_key, -1, now)
+                r.expire(premium_key, settings.SUBSCRIBER_EXPIRE*24*60*60)
+            
+            logging.info("   ---> [%-30s] ~SN~FBCounting subscribers, storing in ~SBredis~SN: ~FMt:~SB~FM%s~SN a:~SB%s~SN p:~SB%s~SN ap:~SB%s" % 
+                          (feed.title[:30], total, active, premium, active_premium))
+
+    @classmethod
+    def count_all_feed_subscribers_for_user(self, user):
+        SUBSCRIBER_EXPIRE = datetime.datetime.now() - datetime.timedelta(days=settings.SUBSCRIBER_EXPIRE)
+        r = redis.Redis(connection_pool=settings.REDIS_FEED_SUB_POOL)
+        if not isinstance(user, User):
+            user = User.objects.get(pk=user)
+        
+        active_feed_ids = [us['feed_id'] for us in UserSubscription.objects.filter(user=user.pk, active=True).values('feed_id')]
+        muted_feed_ids = [us['feed_id'] for us in UserSubscription.objects.filter(user=user.pk, active=False).values('feed_id')]
+        logging.user(user, "~SN~FBRefreshing user last_login_on for ~SB%s~SN/~SB%s subscriptions~SN" % 
+                     (len(active_feed_ids), len(muted_feed_ids)))
+        for feed_ids in [active_feed_ids, muted_feed_ids]:
+            for feeds_group in chunks(feed_ids, 20):
+                pipeline = r.pipeline()
+                for feed_id in feeds_group:
+                    key = 's:%s' % feed_id
+                    premium_key = 'sp:%s' % feed_id
+
+                    last_seen_on = int(user.profile.last_seen_on.strftime('%s'))
+                    if feed_ids is muted_feed_ids:
+                        last_seen_on = 0
+                    pipeline.zadd(key, user.pk, last_seen_on)
+                    if user.profile.is_premium:
+                        pipeline.zadd(premium_key, user.pk, last_seen_on)
+                    else:
+                        pipeline.zrem(premium_key, user.pk)
+                pipeline.execute()
     
     def import_reader_starred_items(self, count=20):
         importer = GoogleReaderImporter(self.user)
@@ -481,13 +593,16 @@ class Profile(models.Model):
         
         if not self.user.email:
             return
-
-        sent_email, created = MSentEmail.objects.get_or_create(receiver_user_id=self.user.pk,
-                                                               email_type='first_share')
         
-        if not created and not force:
-            return
-        
+        params = dict(receiver_user_id=self.user.pk, email_type='first_share')
+        try:
+            sent_email = MSentEmail.objects.get(**params)
+            if not force:
+                # Return if email already sent
+                return
+        except MSentEmail.DoesNotExist:
+            sent_email = MSentEmail.objects.create(**params)
+                
         social_profile = MSocialProfile.objects.get(user_id=self.user.pk)
         params = {
             'shared_stories': MSharedStory.objects.filter(user_id=self.user.pk).count(),
@@ -520,12 +635,15 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         if not self.user.email or not self.send_emails:
             return
         
-        sent_email, created = MSentEmail.objects.get_or_create(receiver_user_id=self.user.pk,
-                                                               email_type='new_premium')
-        
-        if not created and not force:
-            return
-        
+        params = dict(receiver_user_id=self.user.pk, email_type='new_premium')
+        try:
+            sent_email = MSentEmail.objects.get(**params)
+            if not force:
+                # Return if email already sent
+                return
+        except MSentEmail.DoesNotExist:
+            sent_email = MSentEmail.objects.create(**params)
+
         user    = self.user
         text    = render_to_string('mail/email_new_premium.txt', locals())
         html    = render_to_string('mail/email_new_premium.xhtml', locals())
@@ -564,11 +682,15 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
             print "Please provide an email address."
             return
         
-        sent_email, created = MSentEmail.objects.get_or_create(receiver_user_id=self.user.pk,
-                                                               email_type='new_user_queue')
-        if not created and not force:
-            return
-        
+        params = dict(receiver_user_id=self.user.pk, email_type='new_user_queue')
+        try:
+            sent_email = MSentEmail.objects.get(**params)
+            if not force:
+                # Return if email already sent
+                return
+        except MSentEmail.DoesNotExist:
+            sent_email = MSentEmail.objects.create(**params)
+
         user    = self.user
         text    = render_to_string('mail/email_new_user_queue.txt', locals())
         html    = render_to_string('mail/email_new_user_queue.xhtml', locals())
@@ -637,12 +759,15 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
             logging.user(self.user, "~FM~SB~FRNot~FM sending launch social email for user, %s: %s" % (self.user.email and 'opt-out: ' or 'blank', self.user.email))
             return
         
-        sent_email, created = MSentEmail.objects.get_or_create(receiver_user_id=self.user.pk,
-                                                               email_type='launch_social')
-        
-        if not created and not force:
-            logging.user(self.user, "~FM~SB~FRNot~FM sending launch social email for user, sent already: %s" % self.user.email)
-            return
+        params = dict(receiver_user_id=self.user.pk, email_type='launch_social')
+        try:
+            sent_email = MSentEmail.objects.get(**params)
+            if not force:
+                # Return if email already sent
+                logging.user(self.user, "~FM~SB~FRNot~FM sending launch social email for user, sent already: %s" % self.user.email)
+                return
+        except MSentEmail.DoesNotExist:
+            sent_email = MSentEmail.objects.create(**params)
         
         delta      = datetime.datetime.now() - self.last_seen_on
         months_ago = delta.days / 30
@@ -769,6 +894,8 @@ def paypal_signup(sender, **kwargs):
     except:
         pass
     user.profile.activate_premium()
+    user.profile.cancel_premium_stripe()
+    user.profile.cancel_premium_paypal(second_most_recent_only=True)
 subscription_signup.connect(paypal_signup)
 
 def paypal_payment_history_sync(sender, **kwargs):
@@ -817,6 +944,7 @@ def stripe_signup(sender, full_json, **kwargs):
         profile = Profile.objects.get(stripe_id=stripe_id)
         logging.user(profile.user, "~BC~SB~FBStripe subscription signup")
         profile.activate_premium()
+        profile.cancel_premium_paypal()
     except Profile.DoesNotExist:
         return {"code": -1, "message": "User doesn't exist."}
 zebra_webhook_customer_subscription_created.connect(stripe_signup)
@@ -905,7 +1033,7 @@ class PaymentHistory(models.Model):
         }
     
     @classmethod
-    def report(cls, months=24):
+    def report(cls, months=26):
         def _counter(start_date, end_date):
             payments = PaymentHistory.objects.filter(payment_date__gte=start_date, payment_date__lte=end_date)
             payments = payments.aggregate(avg=Avg('payment_amount'), 
@@ -914,7 +1042,7 @@ class PaymentHistory(models.Model):
             print "%s-%02d-%02d - %s-%02d-%02d:\t$%.2f\t$%-6s\t%-4s" % (
                 start_date.year, start_date.month, start_date.day,
                 end_date.year, end_date.month, end_date.day,
-                round(payments['avg'], 2), payments['sum'], payments['count'])
+                round(payments['avg'] if payments['avg'] else 0, 2), payments['sum'] if payments['sum'] else 0, payments['count'])
             return payments['sum']
 
         print "\nMonthly Totals:"
@@ -927,19 +1055,89 @@ class PaymentHistory(models.Model):
             total = _counter(start_date, end_date)
             month_totals[start_date.strftime("%Y-%m")] = total
 
+        print "\nCurrent Month Totals:"
+        month_totals = {}
+        years = datetime.datetime.now().year - 2009
+        for y in reversed(range(years)):
+            now = datetime.datetime.now()
+            start_date = datetime.datetime(now.year, now.month, 1) - dateutil.relativedelta.relativedelta(years=y)
+            end_time = start_date + datetime.timedelta(days=31)
+            end_date = datetime.datetime(end_time.year, end_time.month, 1) - datetime.timedelta(seconds=1)
+            if end_date > now: end_date = now
+            month_totals[start_date.strftime("%Y-%m")] = _counter(start_date, end_date)
+
+        print "\nMTD Totals:"
+        month_totals = {}
+        years = datetime.datetime.now().year - 2009
+        for y in reversed(range(years)):
+            now = datetime.datetime.now()
+            start_date = datetime.datetime(now.year, now.month, 1) - dateutil.relativedelta.relativedelta(years=y)
+            end_date = now - dateutil.relativedelta.relativedelta(years=y)
+            if end_date > now: end_date = now
+            month_totals[start_date.strftime("%Y-%m")] = _counter(start_date, end_date)
+
         print "\nYearly Totals:"
         year_totals = {}
         years = datetime.datetime.now().year - 2009
         for y in reversed(range(years)):
             now = datetime.datetime.now()
             start_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y)
-            end_time = start_date + datetime.timedelta(days=365)
-            end_date = datetime.datetime(end_time.year, end_time.month, 30) - datetime.timedelta(seconds=1)
+            end_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y-1) - datetime.timedelta(seconds=1)
+            if end_date > now: end_date = now
+            year_totals[now.year - y] = _counter(start_date, end_date)
+
+        print "\nYTD Totals:"
+        year_totals = {}
+        years = datetime.datetime.now().year - 2009
+        for y in reversed(range(years)):
+            now = datetime.datetime.now()
+            start_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y)
+            end_date = now - dateutil.relativedelta.relativedelta(years=y)
             if end_date > now: end_date = now
             year_totals[now.year - y] = _counter(start_date, end_date)
 
         total = cls.objects.all().aggregate(sum=Sum('payment_amount'))
         print "\nTotal: $%s" % total['sum']
+
+
+class MGiftCode(mongo.Document):
+    gifting_user_id = mongo.IntField()
+    receiving_user_id = mongo.IntField()
+    gift_code = mongo.StringField(max_length=12)
+    duration_days = mongo.IntField()
+    payment_amount = mongo.IntField()
+    created_date = mongo.DateTimeField(default=datetime.datetime.now)
+    
+    meta = {
+        'collection': 'gift_codes',
+        'allow_inheritance': False,
+        'indexes': ['gifting_user_id', 'receiving_user_id', 'created_date'],
+    }
+    
+    def __unicode__(self):
+        return "%s gifted %s on %s: %s (redeemed %s times)" % (self.gifting_user_id, self.receiving_user_id, self.created_date, self.gift_code, self.redeemed)
+    
+    @property
+    def redeemed(self):
+        redeemed_code = MRedeemedCode.objects.filter(gift_code=self.gift_code)
+        return len(redeemed_code)
+    
+    @staticmethod
+    def create_code(gift_code=None):
+        u = unicode(uuid.uuid4())
+        code = u[:8] + u[9:13]
+        if gift_code:
+            code = gift_code + code[len(gift_code):]
+        return code
+        
+    @classmethod
+    def add(cls, gift_code=None, duration=0, gifting_user_id=None, receiving_user_id=None, payment=0):
+        return cls.objects.create(gift_code=cls.create_code(gift_code), 
+                                   gifting_user_id=gifting_user_id,
+                                   receiving_user_id=receiving_user_id,
+                                   duration_days=duration,
+                                   payment_amount=payment)
+
 
 class MRedeemedCode(mongo.Document):
     user_id = mongo.IntField()
@@ -959,7 +1157,26 @@ class MRedeemedCode(mongo.Document):
     def record(cls, user_id, gift_code):
         cls.objects.create(user_id=user_id, 
                            gift_code=gift_code)
-
+    @classmethod
+    def redeem(cls, user, gift_code):
+        newsblur_gift_code = MGiftCode.objects.filter(gift_code__iexact=gift_code)
+        if newsblur_gift_code:
+            newsblur_gift_code = newsblur_gift_code[0]
+            PaymentHistory.objects.create(user=user,
+                                          payment_date=datetime.datetime.now(),
+                                          payment_amount=newsblur_gift_code.payment_amount,
+                                          payment_provider='newsblur-gift')
+            
+        else:
+            # Thinkup / Good Web Bundle
+            PaymentHistory.objects.create(user=user,
+                                          payment_date=datetime.datetime.now(),
+                                          payment_amount=12,
+                                          payment_provider='good-web-bundle')
+        cls.record(user.pk, gift_code)
+        user.profile.activate_premium()
+        logging.user(user, "~FG~BBRedeeming gift code: %s~FW" % gift_code)
+        
 
 class RNewUserQueue:
     
@@ -978,34 +1195,44 @@ class RNewUserQueue:
             logging.debug("~FRCan't activate free account, can't find user ~SB%s~SN. ~FB%s still in queue." % (user_id, count-1))
             return
             
-        logging.user(user, "~FBActivating free account. %s still in queue." % (count-1))
+        logging.user(user, "~FBActivating free account (%s / %s). %s still in queue." % (user.email, user.profile.last_seen_ip, (count-1)))
 
         user.profile.activate_free()
+    
+    @classmethod
+    def activate_all(cls):
+        count = cls.user_count()
+        if not count:
+            logging.debug("~FBNo users to activate, sleeping...")
+            return
+        
+        for i in range(count):
+            cls.activate_next()
         
     @classmethod
     def add_user(cls, user_id):
-        r = redis.Redis(connection_pool=settings.REDIS_FEED_POOL)
+        r = redis.Redis(connection_pool=settings.REDIS_FEED_UPDATE_POOL)
         now = time.time()
         
         r.zadd(cls.KEY, user_id, now)
     
     @classmethod
     def user_count(cls):
-        r = redis.Redis(connection_pool=settings.REDIS_FEED_POOL)
+        r = redis.Redis(connection_pool=settings.REDIS_FEED_UPDATE_POOL)
         count = r.zcard(cls.KEY)
 
         return count
     
     @classmethod
     def user_position(cls, user_id):
-        r = redis.Redis(connection_pool=settings.REDIS_FEED_POOL)
+        r = redis.Redis(connection_pool=settings.REDIS_FEED_UPDATE_POOL)
         position = r.zrank(cls.KEY, user_id)
         if position >= 0:
             return position + 1
     
     @classmethod
     def pop_user(cls):
-        r = redis.Redis(connection_pool=settings.REDIS_FEED_POOL)
+        r = redis.Redis(connection_pool=settings.REDIS_FEED_UPDATE_POOL)
         user = r.zrange(cls.KEY, 0, 0)[0]
         r.zrem(cls.KEY, user)
 

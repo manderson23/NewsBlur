@@ -10,6 +10,7 @@ from apps.profile.tasks import EmailNewUser
 from apps.social.models import MActivity
 from apps.profile.models import blank_authenticate, RNewUserQueue
 from utils import log as logging
+from dns.resolver import query, NXDOMAIN
 
 class LoginForm(forms.Form):
     username = forms.CharField(label=_("Username or Email"), max_length=30,
@@ -28,7 +29,14 @@ class LoginForm(forms.Form):
         username = self.cleaned_data.get('username', '').lower()
         password = self.cleaned_data.get('password', '')
         
-        user = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username))
+        if '@' in username:
+            user = User.objects.filter(email=username)
+            if not user:
+                user = User.objects.filter(email__iexact=username)
+        else:
+            user = User.objects.filter(username=username)
+            if not user:
+                user = User.objects.filter(username__iexact=username)
         if user:
             user = user[0]
         if username and user:
@@ -105,6 +113,15 @@ class SignupForm(forms.Form):
             email_exists = User.objects.filter(email__iexact=email).count()
             if email_exists:
                 raise forms.ValidationError(_(u'Someone is already using that email address.'))
+            if any([banned in email for banned in ['mailwire24', 'mailbox9', 'scintillamail', 'bluemailboxes', 'devmailing']]):
+                logging.info(" ***> [%s] Spammer signup banned: %s/%s" % (username, password, email))
+                raise forms.ValidationError('Seriously, fuck off spammer.')
+            try:
+                domain = email.rsplit('@', 1)[-1]
+                if not query(domain, 'MX'):
+                    raise forms.ValidationError('Sorry, that email is invalid.')
+            except NXDOMAIN:
+                raise forms.ValidationError('Sorry, that email is invalid.')
         exists = User.objects.filter(username__iexact=username).count()
         if exists:
             user_auth = authenticate(username=username, password=password)

@@ -15,7 +15,7 @@ from django.template import RequestContext
 from django.shortcuts import render_to_response
 from django.core.mail import mail_admins
 from django.conf import settings
-from apps.profile.models import Profile, PaymentHistory, RNewUserQueue, MRedeemedCode
+from apps.profile.models import Profile, PaymentHistory, RNewUserQueue, MRedeemedCode, MGiftCode
 from apps.reader.models import UserSubscription, UserSubscriptionFolders, RUserStory
 from apps.profile.forms import StripePlusPaymentForm, PLANS, DeleteAccountForm
 from apps.profile.forms import ForgotPasswordForm, ForgotPasswordReturnForm, AccountSettingsForm
@@ -34,7 +34,7 @@ from vendor.paypal.standard.forms import PayPalPaymentsForm
 
 SINGLE_FIELD_PREFS = ('timezone','feed_pane_size','hide_mobile','send_emails',
                       'hide_getting_started', 'has_setup_feeds', 'has_found_friends',
-                      'has_trained_intelligence',)
+                      'has_trained_intelligence')
 SPECIAL_PREFERENCES = ('old_password', 'new_password', 'autofollow_friends', 'dashboard_date',)
 
 @ajax_login_required
@@ -52,7 +52,7 @@ def set_preference(request):
             setattr(request.user.profile, preference_name, preference_value)
         elif preference_name in SPECIAL_PREFERENCES:
             if preference_name == 'autofollow_friends':
-                social_services, _ = MSocialServices.objects.get_or_create(user_id=request.user.pk)
+                social_services = MSocialServices.get_user(request.user.pk)
                 social_services.autofollow = preference_value
                 social_services.save()
             elif preference_name == 'dashboard_date':
@@ -110,7 +110,7 @@ def signup(request):
         if form.is_valid():
             new_user = form.save()
             login_user(request, new_user)
-            logging.user(new_user, "~FG~SB~BBNEW SIGNUP~FW")
+            logging.user(new_user, "~FG~SB~BBNEW SIGNUP: ~FW%s" % new_user.email)
             new_user.profile.activate_free()
             return HttpResponseRedirect(request.POST['next'] or reverse('index'))
 
@@ -129,13 +129,7 @@ def redeem_code(request):
         form = RedeemCodeForm(data=request.POST)
         if form.is_valid():
             gift_code = request.POST['gift_code']
-            PaymentHistory.objects.create(user=request.user,
-                                          payment_date=datetime.datetime.now(),
-                                          payment_amount=12,
-                                          payment_provider='good-web-bundle')
-            MRedeemedCode.record(request.user.pk, gift_code)
-            request.user.profile.activate_premium()
-            logging.user(request.user, "~FG~BBRedeeming gift code: %s~FW" % gift_code)
+            MRedeemedCode.redeem(user=request.user, gift_code=gift_code)
             return render_to_response('reader/paypal_return.xhtml', 
                                       {}, context_instance=RequestContext(request))
 
@@ -210,6 +204,12 @@ def clear_view_setting(request):
             removed += 1
         if view_setting_type == 'view' and 'v' in view_setting:
             del view_setting['v']
+            removed += 1
+        if view_setting_type == 'order' and 'o' in view_setting:
+            del view_setting['o']
+            removed += 1
+        if view_setting_type == 'order' and 'r' in view_setting:
+            del view_setting['r']
             removed += 1
         new_view_settings[feed_id] = view_setting
 
@@ -410,6 +410,7 @@ def payment_history(request):
     statistics = {
         "created_date": user.date_joined,
         "last_seen_date": user.profile.last_seen_on,
+        "last_seen_ip": user.profile.last_seen_ip,
         "timezone": unicode(user.profile.timezone),
         "stripe_id": user.profile.stripe_id,
         "profile": user.profile,
@@ -418,10 +419,14 @@ def payment_history(request):
         "read_story_count": RUserStory.read_story_count(user.pk),
         "feed_opens": UserSubscription.objects.filter(user=user).aggregate(sum=Sum('feed_opens'))['sum'],
         "training": {
-            'title': MClassifierTitle.objects.filter(user_id=user.pk).count(),
-            'tag': MClassifierTag.objects.filter(user_id=user.pk).count(),
-            'author': MClassifierAuthor.objects.filter(user_id=user.pk).count(),
-            'feed': MClassifierFeed.objects.filter(user_id=user.pk).count(),
+            'title_ps': MClassifierTitle.objects.filter(user_id=user.pk, score__gt=0).count(),
+            'title_ng': MClassifierTitle.objects.filter(user_id=user.pk, score__lt=0).count(),
+            'tag_ps': MClassifierTag.objects.filter(user_id=user.pk, score__gt=0).count(),
+            'tag_ng': MClassifierTag.objects.filter(user_id=user.pk, score__lt=0).count(),
+            'author_ps': MClassifierAuthor.objects.filter(user_id=user.pk, score__gt=0).count(),
+            'author_ng': MClassifierAuthor.objects.filter(user_id=user.pk, score__lt=0).count(),
+            'feed_ps': MClassifierFeed.objects.filter(user_id=user.pk, score__gt=0).count(),
+            'feed_ng': MClassifierFeed.objects.filter(user_id=user.pk, score__lt=0).count(),
         }
     }
     
@@ -463,9 +468,12 @@ def refund_premium(request):
 def upgrade_premium(request):
     user_id = request.REQUEST.get('user_id')
     user = User.objects.get(pk=user_id)
-    upgraded = user.profile.activate_premium(never_expire=True)
     
-    return {'code': 1 if upgraded else -1}    
+    gift = MGiftCode.add(gifting_user_id=User.objects.get(username='samuel').pk, 
+                         receiving_user_id=user.pk)
+    MRedeemedCode.redeem(user, gift.gift_code)
+    
+    return {'code': user.profile.is_premium}
 
 @staff_member_required
 @ajax_login_required

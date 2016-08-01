@@ -16,10 +16,9 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.newsblur.R;
-import com.newsblur.activity.NewsBlurApplication;
 import com.newsblur.domain.UserDetails;
 import com.newsblur.network.APIManager;
-import com.newsblur.util.ImageLoader;
+import com.newsblur.util.FeedUtils;
 import com.newsblur.util.PrefsUtils;
 import com.newsblur.util.UIUtils;
 
@@ -29,18 +28,13 @@ public class ProfileDetailsFragment extends Fragment implements OnClickListener 
 	private TextView username, bio, location, sharedCount, followerCount, followingCount, website;
 	private View locationIcon;
 	private ImageView imageView;
-	private String noBio, noLocation;  
 	private boolean viewingSelf = false;
-	private ImageLoader imageLoader;
 	private Button followButton, unfollowButton;
 	private APIManager apiManager;
 	
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-		noBio = getString(R.string.profile_no_bio);
-		noLocation = getActivity().getResources().getString(R.string.profile_no_location);
-		imageLoader = ((NewsBlurApplication) getActivity().getApplicationContext()).getImageLoader();
 		apiManager = new APIManager(getActivity());
 	}
 	
@@ -105,7 +99,7 @@ public class ProfileDetailsFragment extends Fragment implements OnClickListener 
 		followingCount.setText("" + user.followingCount);
 		
 		if (!viewingSelf) {
-			imageLoader.displayImage(user.photoUrl, imageView);
+			FeedUtils.imageLoader.displayImage(user.photoUrl, imageView);
 			if (user.followedByYou) {
 				unfollowButton.setVisibility(View.VISIBLE);
 				followButton.setVisibility(View.GONE);

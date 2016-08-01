@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <attr name="flow" format="string" />
-    <attr name="defaultImageSize" format="integer" />
+    <attr name="imageViewSize" format="integer" />
     <attr name="selectorFolderBackground" format="string" />
     <attr name="selectorFeedBackground" format="string" />
-    <attr name="selectorRowFolderName" format="string" />
-    <attr name="selectorRowFeedName" format="string" />
+    <attr name="feedRowNeutCountText" format="string" />
     <attr name="actionbarBackground" format="string" />
     <attr name="listBackground" format="string" />
     <attr name="itemBackground" format="string" />
+    <attr name="readingBackground" format="string" />
     <attr name="defaultText" format="string" />
+    <attr name="linkText" format="string" />
+    <attr name="storySnippetText" format="string" />
+    <attr name="storyDateText" format="string" />
+    <attr name="storyFeedTitleText" format="string" />
     <attr name="selectorStoryBackground" format="string" />
     <attr name="rowItemHeaderBackground" format="string" />
     <attr name="rowItemFeedHeader" format="string" />
-    <attr name="storyTitleUnread" format="string" />
     <attr name="readingItemMetadata" format="string" />
     <attr name="tag" format="string" />
     <attr name="storyButtons" format="string" />
@@ -27,9 +30,12 @@
     <attr name="profileActivityList" format="string" />
     <attr name="itemHeaderDivider" format="string" />
     <attr name="storyCommentDivider" format="string" />
+    <attr name="activityDetailsPager" format="string" />
+    <attr name="explainerText" format="string" />
+    <attr name="toggleText" format="string" />
     
     <declare-styleable name="FlowLayout">
         <attr name="flow" />
-        <attr name="defaultImageSize" />
+        <attr name="imageViewSize" />
     </declare-styleable>
 </resources>

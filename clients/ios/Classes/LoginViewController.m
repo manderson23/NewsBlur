@@ -59,22 +59,33 @@
     //[self.onePasswordButton setHidden:![[OnePasswordExtension sharedExtension] isAppExtensionAvailable]];
     
     if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
-        if (UIInterfaceOrientationIsPortrait(self.interfaceOrientation)) {
-            self.logInView.frame = CGRectMake(134, 180, 500, 300); 
-            self.signUpView.frame = CGRectMake(902, 180, 500, 300); 
-            self.selectLoginButton.frame = CGRectMake(134, 80, 250, 50);
-            self.selectSignUpButton.frame = CGRectMake(384, 80, 250, 50);
-            self.errorLabel.frame = CGRectMake(244, 180, self.errorLabel.frame.size.width, self.errorLabel.frame.size.height);
-        } else {
-            self.logInView.frame = CGRectMake(134 + LANDSCAPE_MARGIN, 80, 500, 300); 
-            self.signUpView.frame = CGRectMake(902 + LANDSCAPE_MARGIN, 80, 500, 300); 
-            self.selectLoginButton.frame = CGRectMake(134 + LANDSCAPE_MARGIN, 20, 250, 50);
-            self.selectSignUpButton.frame = CGRectMake(384 + LANDSCAPE_MARGIN, 20, 250, 50);
-            self.errorLabel.frame = CGRectMake(244 + LANDSCAPE_MARGIN, 180 - 100, self.errorLabel.frame.size.width, self.errorLabel.frame.size.height);
-        } 
+        [self updateControls];
+        [self rearrangeViews];
     }
-
+    
     [super viewDidLoad];
+}
+
+- (CGFloat)xForWidth:(CGFloat)width {
+    return (self.view.bounds.size.width / 2) - (width / 2);
+}
+
+- (void)rearrangeViews {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        CGSize viewSize = self.view.bounds.size;
+        CGFloat viewWidth = viewSize.width;
+        CGFloat yOffset = 0;
+        CGFloat xOffset = isOnSignUpScreen ? -viewWidth : 0;
+        
+        if (UIInterfaceOrientationIsPortrait([[UIApplication sharedApplication] statusBarOrientation])) {
+            yOffset = viewSize.height / 6;
+        }
+        
+        self.buttonsView.frame = CGRectMake([self xForWidth:518], 15 + yOffset, 518, 66);
+        self.logInView.frame = CGRectMake([self xForWidth:500] + xOffset, 75 + yOffset, 500, 300);
+        self.signUpView.frame = CGRectMake([self xForWidth:500] + viewWidth + xOffset, 75 + yOffset, 500, 300);
+        self.errorLabel.frame = CGRectMake([self xForWidth:self.errorLabel.frame.size.width], 75 + yOffset, self.errorLabel.frame.size.width, self.errorLabel.frame.size.height);
+    }
 }
 
 - (void)viewDidUnload {
@@ -88,7 +99,7 @@
 }
 
 - (void)viewWillAppear:(BOOL)animated {
-    [self.errorLabel setHidden:YES];
+    [self showError:nil];
     [super viewWillAppear:animated];
     [usernameInput becomeFirstResponder];
 }
@@ -115,37 +126,21 @@
 }
 
 - (void)willAnimateRotationToInterfaceOrientation:(UIInterfaceOrientation)toInterfaceOrientation duration:(NSTimeInterval)duration {
-    int signUpX, loginX;
+    [self rearrangeViews];
+}
+
+- (void)showError:(NSString *)error {
+    BOOL hasError = error.length > 0;
+    
+    if (hasError) {
+        self.errorLabel.text = error;
+    }
+    
+    self.errorLabel.hidden = !hasError;
+    self.forgotPasswordButton.hidden = !hasError;
+    
     if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
-        if (UIInterfaceOrientationIsPortrait(toInterfaceOrientation)){
-            if (isOnSignUpScreen) {
-                loginX = -634;
-                signUpX = 134;
-            } else {
-                loginX = 134;
-                signUpX = 902;
-            }
-            self.logInView.frame = CGRectMake(loginX, 180, 500, 300);
-            self.signUpView.frame = CGRectMake(signUpX, 180, 500, 300); 
-            self.selectLoginButton.frame = CGRectMake(134, 80, 250, 50);
-            self.selectSignUpButton.frame = CGRectMake(384, 80, 250, 50);
-            self.errorLabel.frame = CGRectMake(244, 180, self.errorLabel.frame.size.width, self.errorLabel.frame.size.height);
-        }else{
-            if (isOnSignUpScreen) {
-                loginX = -634 + LANDSCAPE_MARGIN;
-                signUpX = 134 + LANDSCAPE_MARGIN;
-            } else {
-                loginX = 134 + LANDSCAPE_MARGIN;
-                signUpX = 902 + LANDSCAPE_MARGIN;
-            }
-
-            self.logInView.frame = CGRectMake(loginX, 80, 500, 300);
-            self.signUpView.frame = CGRectMake(signUpX, 80, 500, 300); 
-            self.selectLoginButton.frame = CGRectMake(134 + LANDSCAPE_MARGIN, 80 - 60, 250, 50);
-            self.selectSignUpButton.frame = CGRectMake(384 + LANDSCAPE_MARGIN, 80 - 60, 250, 50);
-            self.errorLabel.frame = CGRectMake(244 + LANDSCAPE_MARGIN, 180 - 100, self.errorLabel.frame.size.width, self.errorLabel.frame.size.height);
-        }
-
+        self.loginOptionalLabel.hidden = hasError;
     }
 }
 
@@ -197,13 +192,13 @@
 }
 
 - (void)checkPassword {
-    [self.errorLabel setHidden:YES];
+    [self showError:nil];
     [MBProgressHUD hideHUDForView:self.view animated:YES];
     MBProgressHUD *HUD = [MBProgressHUD showHUDAddedTo:self.view animated:YES];
     HUD.labelText = @"Authenticating";
     
     NSString *urlString = [NSString stringWithFormat:@"%@/api/login",
-                           NEWSBLUR_URL];
+                           self.appDelegate.url];
     NSURL *url = [NSURL URLWithString:urlString];
     [[NSHTTPCookieStorage sharedHTTPCookieStorage]
      setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyAlways];
@@ -233,11 +228,10 @@
     if (code == -1) {
         NSDictionary *errors = [results valueForKey:@"errors"];
         if ([errors valueForKey:@"username"]) {
-            [self.errorLabel setText:[[errors valueForKey:@"username"] objectAtIndex:0]];   
+            [self showError:[[errors valueForKey:@"username"] firstObject]];
         } else if ([errors valueForKey:@"__all__"]) {
-            [self.errorLabel setText:[[errors valueForKey:@"__all__"] objectAtIndex:0]];
+            [self showError:[[errors valueForKey:@"__all__"] firstObject]];
         }
-        [self.errorLabel setHidden:NO];
     } else {
         [self.passwordInput setText:@""];
         [self.signUpPasswordInput setText:@""];
@@ -252,9 +246,9 @@
     [MBProgressHUD hideHUDForView:self.view animated:YES];
     MBProgressHUD *HUD = [MBProgressHUD showHUDAddedTo:self.view animated:YES];
     HUD.labelText = @"Registering...";
-    [self.errorLabel setHidden:YES];
+    [self showError:nil];
     NSString *urlString = [NSString stringWithFormat:@"%@/api/signup",
-                           NEWSBLUR_URL];
+                           self.appDelegate.url];
     NSURL *url = [NSURL URLWithString:urlString];
     [[NSHTTPCookieStorage sharedHTTPCookieStorage]
      setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyAlways];
@@ -290,14 +284,12 @@
     if (code == -1) {
         NSDictionary *errors = [results valueForKey:@"errors"];
         if ([errors valueForKey:@"email"]) {
-            [self.errorLabel setText:[[errors valueForKey:@"email"] objectAtIndex:0]];
+            [self showError:[[errors valueForKey:@"email"] objectAtIndex:0]];
         } else if ([errors valueForKey:@"username"]) {
-            [self.errorLabel setText:[[errors valueForKey:@"username"] objectAtIndex:0]];
+            [self showError:[[errors valueForKey:@"username"] objectAtIndex:0]];
         } else if ([errors valueForKey:@"__all__"]) {
-            [self.errorLabel setText:[[errors valueForKey:@"__all__"] objectAtIndex:0]];
+            [self showError:[[errors valueForKey:@"__all__"] objectAtIndex:0]];
         }
-
-        [self.errorLabel setHidden:NO];
     } else {
         [self.passwordInput setText:@""];
         [self.signUpPasswordInput setText:@""];
@@ -316,25 +308,36 @@
     [MBProgressHUD hideHUDForView:self.view animated:YES];
 }
 
+- (IBAction)forgotPassword:(id)sender {
+    NSURL *url = [NSURL URLWithString:@"http://www.newsblur.com/folder_rss/forgot_password"];
+    SFSafariViewController *safariViewController = [[SFSafariViewController alloc] initWithURL:url entersReaderIfAvailable:NO];
+    [self presentViewController:safariViewController animated:YES completion:nil];
+}
+
 #pragma mark -
 #pragma mark iPad: Sign Up/Login Toggle
 
+- (void)updateControls {
+    self.selectSignUpButton.selected = isOnSignUpScreen;
+    self.selectLoginButton.selected = !isOnSignUpScreen;
+    
+    [self showError:nil];
+    
+    self.signUpUsernameInput.enabled = isOnSignUpScreen;
+    self.signUpPasswordInput.enabled = isOnSignUpScreen;
+    self.emailInput.enabled = isOnSignUpScreen;
+    self.usernameInput.enabled = !isOnSignUpScreen;
+    self.passwordInput.enabled = !isOnSignUpScreen;
+}
+
 - (IBAction)selectSignUp {
     isOnSignUpScreen = YES;
-    self.selectSignUpButton.selected = YES;
-    self.selectLoginButton.selected = NO;
-    [self.errorLabel setHidden:YES];
-    if (UIInterfaceOrientationIsPortrait(self.interfaceOrientation)) {
-        [UIView animateWithDuration:0.35 animations:^{
-            self.logInView.frame = CGRectMake(-634, 180, 500, 300);    
-            self.signUpView.frame = CGRectMake(134, 180, 500, 300); 
-        }]; 
-    } else {
-        [UIView animateWithDuration:0.35 animations:^{
-            self.logInView.frame = CGRectMake(-634 + LANDSCAPE_MARGIN, 80, 500, 300); 
-            self.signUpView.frame = CGRectMake(134 + LANDSCAPE_MARGIN, 80, 500, 300); 
-        }]; 
-    }
+    
+    [self updateControls];
+    
+    [UIView animateWithDuration:0.35 animations:^{
+        [self rearrangeViews];
+    }];
     
     [self.signUpUsernameInput becomeFirstResponder];
     
@@ -342,20 +345,12 @@
 
 - (IBAction)selectLogin {
     isOnSignUpScreen = NO;
-    self.selectSignUpButton.selected = NO;
-    self.selectLoginButton.selected = YES;
-    [self.errorLabel setHidden:YES];
-    if (UIInterfaceOrientationIsPortrait(self.interfaceOrientation)) {
-        [UIView animateWithDuration:0.35 animations:^{
-            self.logInView.frame = CGRectMake(134, 180, 500, 300);   
-            self.signUpView.frame = CGRectMake(902, 180, 500, 300); 
-        }];
-    } else {
-        [UIView animateWithDuration:0.35 animations:^{
-            self.logInView.frame = CGRectMake(134 + LANDSCAPE_MARGIN, 80, 500, 300);    
-            self.signUpView.frame = CGRectMake(902 + LANDSCAPE_MARGIN, 80, 500, 300); 
-        }];
-    }
+    
+    [self updateControls];
+    
+    [UIView animateWithDuration:0.35 animations:^{
+        [self rearrangeViews];
+    }];
     
     [self.usernameInput becomeFirstResponder];
 }
@@ -425,6 +420,8 @@
         [usernameInput resignFirstResponder];
         [usernameInput becomeFirstResponder];
     }
+    
+    self.forgotPasswordButton.hidden = YES;
 }
 
 @end

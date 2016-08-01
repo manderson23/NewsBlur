@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.newsblur"
-    android:versionCode="97"
-    android:versionName="4.3.0b5" >
+    android:versionCode="129"
+    android:versionName="4.10.0b2" >
 
     <uses-sdk
-        android:minSdkVersion="11"
-        android:targetSdkVersion="21" />
+        android:minSdkVersion="16"
+        android:targetSdkVersion="23" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -18,17 +18,25 @@
         android:icon="@drawable/logo"
         android:label="@string/newsblur"
         android:theme="@style/NewsBlurTheme"
-        android:name=".activity.NewsBlurApplication" >
+        android:hardwareAccelerated="true"
+        android:fullBackupContent="@xml/backupscheme" >
         
+        <activity
+            android:name=".activity.InitActivity"
+            android:label="@string/newsblur"
+            android:theme="@style/initStyle"
+            android:noHistory="true">
+            <intent-filter>
+                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".activity.Login"
             android:label="@string/newsblur"
             android:noHistory="true"
             android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <category android:name="android.intent.category.LAUNCHER" />
-                <action android:name="android.intent.action.MAIN" />
-            </intent-filter>
         </activity>
         
         <activity
@@ -132,12 +140,6 @@
         </receiver>
 
         <receiver android:name=".service.ServiceScheduleReceiver" />
-
-        <receiver android:name=".service.NetStateReceiver">
-            <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
-            </intent-filter>
-        </receiver>
 
     </application>
 

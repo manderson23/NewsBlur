@@ -20,22 +20,20 @@ class MongoDumpMiddleware(object):
         if not getattr(MongoClient, '_logging', False):
             # save old methods
             setattr(MongoClient, '_logging', True)
-            # # save old methods
-            # self.orig_send_message = \
-            #         MongoClient._send_message
-            # self.orig_send_message_with_response = \
-            #         MongoClient._send_message_with_response
-            # self.orig_rs_send_message = \
-            #         MongoReplicaSetClient._send_message
-            # self.orig_rs_send_message_with_response = \
-            #         MongoReplicaSetClient._send_message_with_response
-            # instrument methods to record messages
-            MongoClient._send_message = \
-                    self._instrument(MongoClient._send_message)
             MongoClient._send_message_with_response = \
                     self._instrument(MongoClient._send_message_with_response)
-            MongoReplicaSetClient._send_message = \
-                    self._instrument(MongoReplicaSetClient._send_message)
+            MongoReplicaSetClient._send_message_with_response = \
+                    self._instrument(MongoReplicaSetClient._send_message_with_response)
+        return None
+
+    def process_celery(self, profiler):
+        if not self.activated(profiler): return
+        self._used_msg_ids = []
+        if not getattr(MongoClient, '_logging', False):
+            # save old methods
+            setattr(MongoClient, '_logging', True)
+            MongoClient._send_message_with_response = \
+                    self._instrument(MongoClient._send_message_with_response)
             MongoReplicaSetClient._send_message_with_response = \
                     self._instrument(MongoReplicaSetClient._send_message_with_response)
         return None
@@ -55,6 +53,8 @@ class MongoDumpMiddleware(object):
 
     def _instrument(self, original_method):
         def instrumented_method(*args, **kwargs):
+            # query = args[1].get_message(False, False)
+            # message = _mongodb_decode_wire_protocol(query[1])
             message = _mongodb_decode_wire_protocol(args[1][1])
             if not message or message['msg_id'] in self._used_msg_ids:
                 return original_method(*args, **kwargs)

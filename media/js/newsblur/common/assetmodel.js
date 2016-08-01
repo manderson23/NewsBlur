@@ -53,7 +53,8 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
             'traditional': true,
             'domSuccessTrigger': true,
             'preventDoubleRequests': false,
-            'timeout': 15000
+            'timeout': 15000,
+            'retry': true
         }, options);
         var request_type = options.request_type || 'POST';
         var clear_queue = false;
@@ -104,6 +105,12 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
                 NEWSBLUR.log(['AJAX Error', e, e.status, textStatus, errorThrown, 
                               !!error_callback, error_callback, $.isFunction(callback)]);
                 
+                if (options.retry) {
+                    NEWSBLUR.log(['Retrying...', url, data, !!callback, !!error_callback, options]);
+                    options.retry = false;
+                    self.make_request(url, data, callback, error_callback, options);
+                    return;
+                }
                 if (errorThrown == "timeout") textStatus = "NewsBlur timed out trying<br />to connect. Just try again.";
                 if (error_callback) {
                     error_callback(e, textStatus, errorThrown);
@@ -571,6 +578,16 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
                 this.flags['no_more_stories'] = true;
                 this.stories.trigger('no_more_stories');
             }
+            var attrs = {};
+            var feed_attrs = ["num_subscribers", "is_push", "min_to_decay", "favicon_color", "favicon_border", "favicon_fade", "favicon_textg_color", "updated_seconds_ago"];
+            for (var attr in feed_attrs) {
+                var feed_attr = feed_attrs[attr];
+                if (data[feed_attr] || !_.isUndefined(data[feed_attr])) {
+                    attrs[feed_attr] = data[feed_attr];
+                }
+            }
+            if (this.active_feed) this.active_feed.set(attrs);
+
             $.isFunction(callback) && callback(data, first_load);
         }
     },
@@ -708,6 +725,15 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
             query: NEWSBLUR.reader.flags.search
         }, pre_callback, error_callback, {
             'ajax_group': (page > 1 ? 'feed_page' : 'feed'),
+            'request_type': 'GET'
+        });
+    },
+    
+    fetch_story_changes: function(story_hash, show_changes, callback, error_callback) {
+        this.make_request('/rss_feeds/story_changes', {
+            story_hash: story_hash,
+            show_changes: show_changes
+        }, callback, error_callback, {
             'request_type': 'GET'
         });
     },
@@ -1263,9 +1289,9 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
         this.make_request('/reader/mark_all_as_read', {'days': days}, callback);
     },
     
-    get_features_page: function(page, callback) {
-        this.make_request('/reader/features', {'page': page}, callback, callback, {
-            'ajax_group': 'statistics',
+    get_features_page: function(page, callback, error_callback) {
+        this.make_request('/reader/features', {'page': page}, callback, error_callback, {
+            'ajax_group': 'queue',
             request_type: 'GET'
         });
     },
@@ -1276,7 +1302,7 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
             'refresh'      : refresh,
             'unmoderated'  : unmoderated
         }, callback, error_callback, {
-            'ajax_group': 'statistics',
+            'ajax_group': 'queue',
             request_type: 'GET'
         });
     },
@@ -1333,7 +1359,7 @@ NEWSBLUR.AssetModel = Backbone.Router.extend({
     
     load_feedback_table: function(callback, error_callback) {
         this.make_request('/statistics/feedback_table', {}, callback, error_callback, {
-            'ajax_group': 'statistics',
+            'ajax_group': 'queue',
             request_type: 'GET'
         });
     },

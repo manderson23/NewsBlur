@@ -81,7 +81,7 @@ NEWSBLUR.Views.StoryTitlesView = Backbone.View.extend({
         $layout.removeClass('NB-grid-columns-1')
                .removeClass('NB-grid-columns-2')
                .removeClass('NB-grid-columns-3')
-               .removeClass('NB-grid-columns-4')
+               .removeClass('NB-grid-columns-4');
 
         if (columns > 0) {
             $layout.addClass('NB-grid-columns-' + columns);
@@ -159,19 +159,22 @@ NEWSBLUR.Views.StoryTitlesView = Backbone.View.extend({
     show_loading: function(options) {
         options = options || {};
         if (NEWSBLUR.assets.flags['no_more_stories']) return;
-        
+
         var $story_titles = NEWSBLUR.reader.$s.$story_titles;
         this.$('.NB-end-line').remove();
         var $endline = $.make('div', { className: "NB-end-line NB-short" });
-        $endline.css({'background': '#E1EBFF'});
+        $endline.css({'background': '#FFF'});
         $story_titles.append($endline);
         
-        $endline.animate({'backgroundColor': '#5C89C9'}, {'duration': 650})
+        $endline.animate({'backgroundColor': '#E1EBFF'}, {'duration': 550, 'easing': 'easeInQuad'})
+                .animate({'backgroundColor': '#5C89C9'}, {'duration': 1550, 'easing': 'easeOutQuad'})
                 .animate({'backgroundColor': '#E1EBFF'}, 1050);
-        this.feed_stories_loading = setInterval(function() {
-            $endline.animate({'backgroundColor': '#5C89C9'}, {'duration': 650})
-                    .animate({'backgroundColor': '#E1EBFF'}, 1050);
-        }, 1700);
+        _.delay(_.bind(function() {
+            this.feed_stories_loading = setInterval(function() {
+                $endline.animate({'backgroundColor': '#5C89C9'}, {'duration': 650})
+                        .animate({'backgroundColor': '#E1EBFF'}, 1050);
+            }, 1700);
+        }, this), (550+1550+1050) - 1700);
         
         if (options.scroll_to_loadbar) {
             this.pre_load_page_scroll_position = $('#story_titles').scrollTop();
@@ -280,6 +283,9 @@ NEWSBLUR.Views.StoryTitlesView = Backbone.View.extend({
             _.contains(['list', 'grid'], NEWSBLUR.assets.view_setting(NEWSBLUR.reader.active_feed, 'layout'))) {
             var container_offset = NEWSBLUR.reader.$s.$story_titles.position().top;
             var scroll = story_title_view.$el.find('.NB-story-title').position().top;
+            if (options.scroll_to_comments) {
+                scroll = story_title_view.$el.find('.NB-feed-story-comments').position().top;
+            }
             var container = NEWSBLUR.reader.$s.$story_titles.scrollTop();
             var height = NEWSBLUR.reader.$s.$story_titles.outerHeight();
             var position = scroll+container-height/5;

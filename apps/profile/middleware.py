@@ -8,7 +8,6 @@ from django.http import HttpResponse
 from django.conf import settings
 from django.db import connection
 from django.template import Template, Context
-from apps.profile.tasks import CleanupUser
 from apps.statistics.rstats import round_time
 from utils import json_functions as json
 
@@ -21,20 +20,19 @@ class LastSeenMiddleware(object):
             and hasattr(request, 'user')
             and request.user.is_authenticated()): 
             hour_ago = datetime.datetime.utcnow() - datetime.timedelta(minutes=60)
-            ip = request.META.get('HTTP_X_REAL_IP', None) or request.META['REMOTE_ADDR']
+            ip = request.META.get('HTTP_X_FORWARDED_FOR', None) or request.META['REMOTE_ADDR']
             # SUBSCRIBER_EXPIRE = datetime.datetime.utcnow() - datetime.timedelta(days=settings.SUBSCRIBER_EXPIRE)
             if request.user.profile.last_seen_on < hour_ago:
                 logging.user(request, "~FG~BBRepeat visitor: ~SB%s (%s)" % (
                     request.user.profile.last_seen_on, ip))
+                from apps.profile.tasks import CleanupUser
                 CleanupUser.delay(user_id=request.user.pk)
             elif settings.DEBUG:
                 logging.user(request, "~FG~BBRepeat visitor (ignored): ~SB%s (%s)" % (
                     request.user.profile.last_seen_on, ip))
 
-            # if request.user.profile.last_seen_on < SUBSCRIBER_EXPIRE:
-                # request.user.profile.refresh_stale_feeds()
             request.user.profile.last_seen_on = datetime.datetime.utcnow()
-            request.user.profile.last_seen_ip = ip
+            request.user.profile.last_seen_ip = ip[-15:]
             request.user.profile.save()
         
         return response
@@ -47,6 +45,13 @@ class DBProfilerMiddleware:
             random.random() < .01):
             request.activated_segments.append('db_profiler')
             connection.use_debug_cursor = True
+
+    def process_celery(self): 
+        setattr(self, 'activated_segments', [])        
+        if random.random() < .01:
+            self.activated_segments.append('db_profiler')
+            connection.use_debug_cursor = True
+            return self
     
     def process_exception(self, request, exception):
         if hasattr(request, 'sql_times_elapsed'):
@@ -57,14 +62,21 @@ class DBProfilerMiddleware:
             self._save_times(request.sql_times_elapsed)
         return response
     
-    def _save_times(self, db_times):
+    def process_celery_finished(self):
+        middleware = SQLLogToConsoleMiddleware()
+        middleware.process_celery(self)
+        if hasattr(self, 'sql_times_elapsed'):
+            logging.debug(" ---> ~FGProfiling~FB task: %s" % self.sql_times_elapsed)
+            self._save_times(self.sql_times_elapsed, 'task_')
+    
+    def _save_times(self, db_times, prefix=""):
         if not db_times: return
         
         r = redis.Redis(connection_pool=settings.REDIS_STATISTICS_POOL)
         pipe = r.pipeline()
         minute = round_time(round_to=60)
         for db, duration in db_times.items():
-            key = "DB:%s:%s" % (db, minute.strftime('%s'))
+            key = "DB:%s%s:%s" % (prefix, db, minute.strftime('%s'))
             pipe.incr("%s:c" % key)
             pipe.expireat("%s:c" % key, (minute + datetime.timedelta(days=2)).strftime("%s"))
             if duration:
@@ -111,6 +123,9 @@ class SQLLogToConsoleMiddleware:
             }
             setattr(request, 'sql_times_elapsed', times_elapsed)
         return response
+        
+    def process_celery(self, profiler):
+        self.process_response(profiler, None)
 
 SIMPSONS_QUOTES = [
     ("Homer", "D'oh."),
@@ -245,6 +260,7 @@ class UserAgentBanMiddleware:
         
         if 'profile' in request.path: return
         if 'haproxy' in request.path: return
+        if 'dbcheck' in request.path: return
         if 'account' in request.path: return
         if 'push' in request.path: return
         if getattr(settings, 'TEST_DEBUG'): return

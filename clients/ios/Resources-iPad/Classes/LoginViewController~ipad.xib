@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.iPad.XIB" version="3.0" toolsVersion="7706" systemVersion="14D136" targetRuntime="iOS.CocoaTouch.iPad" propertyAccessControl="none">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.iPad.XIB" version="3.0" toolsVersion="10116" systemVersion="15E65" targetRuntime="iOS.CocoaTouch.iPad" propertyAccessControl="none">
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="7703"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="10085"/>
     </dependencies>
     <objects>
         <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="LoginViewController">
             <connections>
                 <outlet property="activityIndicator" destination="25" id="27"/>
                 <outlet property="authenticatingLabel" destination="24" id="28"/>
+                <outlet property="buttonsView" destination="QTJ-P9-rGN" id="Rz2-mx-JDr"/>
                 <outlet property="emailInput" destination="45" id="49"/>
                 <outlet property="emailLabel" destination="46" id="50"/>
                 <outlet property="errorLabel" destination="29" id="30"/>
+                <outlet property="forgotPasswordButton" destination="Qvq-7C-yQC" id="iN9-Nn-ug1"/>
                 <outlet property="logInView" destination="82" id="123"/>
+                <outlet property="loginOptionalLabel" destination="83" id="dfO-ag-kHn"/>
                 <outlet property="onePasswordButton" destination="n4i-hq-JhB" id="RhN-9C-3sx"/>
                 <outlet property="passwordInput" destination="86" id="109"/>
                 <outlet property="passwordLabel" destination="7" id="37"/>
@@ -200,46 +203,17 @@
                                 <action selector="findLoginFrom1Password:" destination="-1" eventType="touchDown" id="mKJ-Ck-efB"/>
                             </connections>
                         </button>
+                        <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" id="Qvq-7C-yQC" userLabel="Forgot?">
+                            <rect key="frame" x="340" y="134" width="60" height="30"/>
+                            <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                            <fontDescription key="fontDescription" name="Georgia-Bold" family="Georgia" pointSize="15"/>
+                            <state key="normal" title="Forgot?"/>
+                            <connections>
+                                <action selector="forgotPassword:" destination="-1" eventType="touchUpInside" id="muc-Ig-ZLT"/>
+                            </connections>
+                        </button>
                     </subviews>
                 </view>
-                <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" id="75">
-                    <rect key="frame" x="384" y="80" width="250" height="50"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                    <fontDescription key="fontDescription" name="Georgia-Bold" family="Georgia" pointSize="15"/>
-                    <inset key="contentEdgeInsets" minX="0.0" minY="0.0" maxX="50" maxY="0.0"/>
-                    <inset key="titleEdgeInsets" minX="16" minY="0.0" maxX="0.0" maxY="0.0"/>
-                    <state key="normal" title="SIGN UP" image="fountain_pen.png">
-                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="calibratedWhite"/>
-                        <color key="titleShadowColor" white="0.5" alpha="1" colorSpace="calibratedWhite"/>
-                    </state>
-                    <state key="selected" image="fountain_pen_on.png"/>
-                    <state key="highlighted" image="fountain_pen_on.png">
-                        <color key="titleColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
-                    </state>
-                    <connections>
-                        <action selector="selectSignUp" destination="-1" eventType="touchUpInside" id="106"/>
-                    </connections>
-                </button>
-                <button opaque="NO" contentMode="scaleToFill" selected="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" id="76">
-                    <rect key="frame" x="134" y="80" width="250" height="50"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                    <fontDescription key="fontDescription" name="Georgia-Bold" family="Georgia" pointSize="15"/>
-                    <inset key="contentEdgeInsets" minX="50" minY="0.0" maxX="0.0" maxY="0.0"/>
-                    <inset key="titleEdgeInsets" minX="16" minY="0.0" maxX="0.0" maxY="0.0"/>
-                    <state key="normal" title="LOGIN" image="user.png">
-                        <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="calibratedWhite"/>
-                        <color key="titleShadowColor" white="0.5" alpha="1" colorSpace="calibratedWhite"/>
-                    </state>
-                    <state key="selected" image="user_on.png">
-                        <color key="titleColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
-                    </state>
-                    <state key="highlighted" image="user_on.png">
-                        <color key="titleColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
-                    </state>
-                    <connections>
-                        <action selector="selectLogin" destination="-1" eventType="touchUpInside" id="105"/>
-                    </connections>
-                </button>
                 <label hidden="YES" opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="center" text="" textAlignment="center" lineBreakMode="tailTruncation" numberOfLines="2" minimumFontSize="16" id="29" userLabel="Label - Error">
                     <rect key="frame" x="244" y="180" width="280" height="52"/>
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
@@ -260,6 +234,51 @@
                     <rect key="frame" x="296" y="196" width="20" height="20"/>
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
                 </activityIndicatorView>
+                <view opaque="NO" contentMode="scaleToFill" id="QTJ-P9-rGN" userLabel="Buttons View">
+                    <rect key="frame" x="126" y="60" width="518" height="66"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <subviews>
+                        <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" id="75">
+                            <rect key="frame" x="259" y="8" width="250" height="50"/>
+                            <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxY="YES"/>
+                            <fontDescription key="fontDescription" name="Georgia-Bold" family="Georgia" pointSize="15"/>
+                            <inset key="contentEdgeInsets" minX="0.0" minY="0.0" maxX="50" maxY="0.0"/>
+                            <inset key="titleEdgeInsets" minX="16" minY="0.0" maxX="0.0" maxY="0.0"/>
+                            <state key="normal" title="SIGN UP" image="fountain_pen.png">
+                                <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="calibratedWhite"/>
+                                <color key="titleShadowColor" white="0.5" alpha="1" colorSpace="calibratedWhite"/>
+                            </state>
+                            <state key="selected" image="fountain_pen_on.png"/>
+                            <state key="highlighted" image="fountain_pen_on.png">
+                                <color key="titleColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                            </state>
+                            <connections>
+                                <action selector="selectSignUp" destination="-1" eventType="touchUpInside" id="106"/>
+                            </connections>
+                        </button>
+                        <button opaque="NO" contentMode="scaleToFill" selected="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" lineBreakMode="middleTruncation" id="76">
+                            <rect key="frame" x="8" y="8" width="250" height="50"/>
+                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                            <fontDescription key="fontDescription" name="Georgia-Bold" family="Georgia" pointSize="15"/>
+                            <inset key="contentEdgeInsets" minX="50" minY="0.0" maxX="0.0" maxY="0.0"/>
+                            <inset key="titleEdgeInsets" minX="16" minY="0.0" maxX="0.0" maxY="0.0"/>
+                            <state key="normal" title="LOGIN" image="user.png">
+                                <color key="titleColor" white="1" alpha="1" colorSpace="custom" customColorSpace="calibratedWhite"/>
+                                <color key="titleShadowColor" white="0.5" alpha="1" colorSpace="calibratedWhite"/>
+                            </state>
+                            <state key="selected" image="user_on.png">
+                                <color key="titleColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                            </state>
+                            <state key="highlighted" image="user_on.png">
+                                <color key="titleColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                            </state>
+                            <connections>
+                                <action selector="selectLogin" destination="-1" eventType="touchUpInside" id="105"/>
+                            </connections>
+                        </button>
+                    </subviews>
+                    <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="calibratedWhite"/>
+                </view>
             </subviews>
             <color key="backgroundColor" red="0.227029128" green="0.3621357764" blue="0.45652173909999999" alpha="1" colorSpace="calibratedRGB"/>
             <simulatedStatusBarMetrics key="simulatedStatusBarMetrics" statusBarStyle="blackOpaque"/>
@@ -279,9 +298,4 @@
         <image name="user.png" width="50" height="50"/>
         <image name="user_on.png" width="50" height="50"/>
     </resources>
-    <simulatedMetricsContainer key="defaultSimulatedMetrics">
-        <simulatedStatusBarMetrics key="statusBar"/>
-        <simulatedOrientationMetrics key="orientation"/>
-        <simulatedScreenMetrics key="destination"/>
-    </simulatedMetricsContainer>
 </document>

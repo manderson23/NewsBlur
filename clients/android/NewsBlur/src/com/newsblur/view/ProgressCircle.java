@@ -3,7 +3,6 @@ package com.newsblur.view;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
@@ -14,6 +13,7 @@ import android.util.Log;
 import android.widget.ProgressBar;
 
 import com.newsblur.R;
+import com.newsblur.util.UIUtils;
 
 /**
  * A determinate, circular progress indicator.
@@ -26,17 +26,23 @@ public class ProgressCircle extends ProgressBar {
     /** The thickness of the circular ring, in DP. */
     public static final int STROKE_THICKNESS = 5;
 
+    private int colorRemaining;
+    private int colorCompleted;
+
     public ProgressCircle(Context context) {
         super(context);
+        colorRemaining = UIUtils.getColor(context, R.color.progress_circle_remaining);
+        colorCompleted = UIUtils.getColor(context, R.color.progress_circle_complete);
     }
 
     public ProgressCircle(Context context, AttributeSet attrs) {
         super(context, attrs);
         this.setIndeterminate(false);
+        colorRemaining = UIUtils.getColor(context, R.color.progress_circle_remaining);
+        colorCompleted = UIUtils.getColor(context, R.color.progress_circle_complete);
     }
 
     protected void onDraw(Canvas canvas) {
-        
         // the outline of the view w.r.t the screen
         Rect r = new Rect();
         this.getDrawingRect(r);
@@ -58,10 +64,10 @@ public class ProgressCircle extends ProgressBar {
         p.setStyle( Paint.Style.FILL );
         p.setAntiAlias(true);
         // draw the "remaining" part of the arc as a background
-        p.setColor( getResources().getColor(R.color.progress_circle_remaining) );
+        p.setColor(colorRemaining);
         c.drawArc(new RectF(cr), -90f, 360f, true, p);
         // draw the "completed" part of the arc over that
-        p.setColor( getResources().getColor(R.color.progress_circle_complete) );
+        p.setColor(colorCompleted);
         c.drawArc(new RectF(cr), -90f, angle, true, p);
         // clear the centre to form a ring 
         p.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
@@ -75,7 +81,6 @@ public class ProgressCircle extends ProgressBar {
 
         // apply the bitmap onto this view
         canvas.drawBitmap(bm, r.left, r.top, null);
-
     }
 
 }

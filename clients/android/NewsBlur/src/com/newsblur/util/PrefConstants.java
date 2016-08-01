@@ -2,6 +2,8 @@ package com.newsblur.util;
 
 public class PrefConstants {
 
+    private PrefConstants() {} // util class - no instances
+
 	public static final String PREFERENCES = "preferences";
 	public static final String PREF_COOKIE = "login_cookie";
 	public static final String PREF_UNIQUE_LOGIN = "login_unique";
@@ -24,6 +26,7 @@ public class PrefConstants {
 	public final static String USER_SHARED_STORIES_COUNT = "shared_stories_count";
 	
 	public static final String PREFERENCE_TEXT_SIZE = "default_reading_text_size";
+	public static final String PREFERENCE_LIST_TEXT_SIZE = "list_text_size";
 	
 	public static final String PREFERENCE_REGISTRATION_STATE = "registration_stage";
 	
@@ -47,6 +50,7 @@ public class PrefConstants {
     public static final String SAVED_STORIES_FOLDER_NAME = "saved_stories";
     public static final String READING_ENTER_IMMERSIVE_SINGLE_TAP = "immersive_enter_single_tap";
 
+    public static final String STORIES_AUTO_OPEN_FIRST = "pref_auto_open_first_unread";
     public static final String STORIES_SHOW_PREVIEWS = "pref_show_content_preview";
 
     public static final String ENABLE_OFFLINE = "enable_offline";
@@ -66,4 +70,5 @@ public class PrefConstants {
     public static final String LAST_CLEANUP_TIME = "last_cleanup_time";
 
     public static final String VOLUME_KEY_NAVIGATION = "volume_key_navigation";
+    public static final String MARK_ALL_READ_CONFIRMATION = "pref_confirm_mark_all_read";
 }

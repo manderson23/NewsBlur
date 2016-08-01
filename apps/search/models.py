@@ -1,3 +1,4 @@
+import re
 import time
 import datetime
 import pymongo
@@ -5,7 +6,6 @@ import pyes
 import redis
 import celery
 import mongoengine as mongo
-from pyes.query import MatchQuery
 from django.conf import settings
 from django.contrib.auth.models import User
 from apps.search.tasks import IndexSubscriptionsForSearch
@@ -141,6 +141,12 @@ class MUserSearch(mongo.Document):
         
     @classmethod
     def remove_all(cls, drop_index=False):
+        # You only need to drop the index if there is data you want to clear.
+        # A new search server won't need this, as there isn't anything to drop.
+        if drop_index:
+            logging.info(" ---> ~FRRemoving stories search index...")
+            SearchStory.drop()
+            
         user_searches = cls.objects.all()
         logging.info(" ---> ~SN~FRRemoving ~SB%s~SN user searches..." % user_searches.count())
         for user_search in user_searches:
@@ -149,19 +155,12 @@ class MUserSearch(mongo.Document):
             except Exception, e:
                 print " ****> Error on search removal: %s" % e
         
-        # You only need to drop the index if there is data you want to clear.
-        # A new search server won't need this, as there isn't anything to drop.
-        if drop_index:
-            logging.info(" ---> ~FRRemoving stories search index...")
-            SearchStory.drop()
-        
     def remove(self):
         from apps.rss_feeds.models import Feed
         from apps.reader.models import UserSubscription
 
         user = User.objects.get(pk=self.user_id)
-        subscriptions = UserSubscription.objects.filter(user=self.user_id, 
-                                                        feed__search_indexed=True)
+        subscriptions = UserSubscription.objects.filter(user=self.user_id)
         total = subscriptions.count()
         removed = 0
         
@@ -169,6 +168,8 @@ class MUserSearch(mongo.Document):
             try:
                 feed = sub.feed
             except Feed.DoesNotExist:
+                continue
+            if not feed.search_indexed:
                 continue
             feed.search_indexed = False
             feed.save()
@@ -202,28 +203,28 @@ class SearchStory:
                 'index': 'analyzed',
                 'store': 'no',
                 'type': 'string',
-                'analyzer': 'snowball',
+                'analyzer': 'standard',
             },
             'content': {
                 'boost': 1.0,
                 'index': 'analyzed',
                 'store': 'no',
                 'type': 'string',
-                'analyzer': 'snowball',
+                'analyzer': 'simple',
             },
             'tags': {
                 'boost': 2.0,
                 'index': 'analyzed',
                 'store': 'no',
                 'type': 'string',
-                'analyzer': 'snowball',
+                'analyzer': 'standard',
             },
             'author': {
                 'boost': 1.0,
                 'index': 'analyzed',
                 'store': 'no',
                 'type': 'string',   
-                'analyzer': 'keyword',
+                'analyzer': 'simple',
             },
             'feed_id': {
                 'store': 'no',
@@ -270,9 +271,10 @@ class SearchStory:
     def query(cls, feed_ids, query, order, offset, limit):
         cls.create_elasticsearch_mapping()
         cls.ES.indices.refresh()
-        
+
+        query    = re.sub(r'([^\s\w_\-])+', ' ', query) # Strip non-alphanumeric        
         sort     = "date:desc" if order == "newest" else "date:asc"
-        string_q = pyes.query.StringQuery(query, default_operator="AND")
+        string_q = pyes.query.QueryStringQuery(query, default_operator="AND")
         feed_q   = pyes.query.TermsQuery('feed_id', feed_ids[:1000])
         q        = pyes.query.BoolQuery(must=[string_q, feed_q])
         try:
@@ -285,13 +287,28 @@ class SearchStory:
         logging.info(" ---> ~FG~SNSearch ~FCstories~FG for: ~SB%s~SN (across %s feed%s)" % 
                      (query, len(feed_ids), 's' if len(feed_ids) != 1 else ''))
         
-        return [r.get_id() for r in results]
+        try:
+            result_ids = [r.get_id() for r in results]
+        except pyes.InvalidQuery(), e:
+            logging.info(" ---> ~FRInvalid search query \"%s\": %s" % (query, e))
+            return []
+        
+        return result_ids
 
 
 class SearchFeed:
     
-    ES = pyes.ES(settings.ELASTICSEARCH_FEED_HOSTS)
+    _es_client = None
     name = "feeds"
+
+
+    @classmethod
+    def ES(cls):
+        if cls._es_client is None:
+            cls._es_client = pyes.ES(settings.ELASTICSEARCH_FEED_HOSTS)
+            if not cls._es_client.indices.exists_index(cls.index_name()):
+                cls.create_elasticsearch_mapping()
+        return cls._es_client
     
     @classmethod
     def index_name(cls):
@@ -300,11 +317,12 @@ class SearchFeed:
     @classmethod
     def type_name(cls):
         return "%s-type" % cls.name
-        
+
     @classmethod
     def create_elasticsearch_mapping(cls, delete=False):
         if delete:
-            cls.ES.indices.delete_index_if_exists("%s-index" % cls.name)
+            cls.ES().indices.delete_index_if_exists(cls.index_name())
+
         settings =  {
             "index" : {
                 "analysis": {
@@ -314,46 +332,23 @@ class SearchFeed:
                             "tokenizer": "lowercase",
                             "type": "custom"
                         },
-                        "ngram_analyzer": {
-                            "filter": ["ngram"],
-                            "tokenizer": "lowercase",
-                            "type": "custom"
-                        }
                     },
                     "filter": {
                         "edgengram": {
                             "max_gram": "15",
-                            "min_gram": "2",
+                            "min_gram": "1",
                             "type": "edgeNGram"
                         },
-                        "ngram": {
-                            "max_gram": "15",
-                            "min_gram": "3",
-                            "type": "nGram"
-                        }
-                    },
-                    "tokenizer": {
-                        "edgengram_tokenizer": {
-                            "max_gram": "15",
-                            "min_gram": "2",
-                            "side": "front",
-                            "type": "edgeNGram"
-                        },
-                        "ngram_tokenizer": {
-                            "max_gram": "15",
-                            "min_gram": "3",
-                            "type": "nGram"
-                        }
                     }
                 }
             }
         }
-        cls.ES.indices.create_index_if_missing("%s-index" % cls.name, settings)
+        cls.ES().indices.create_index_if_missing(cls.index_name(), settings)
 
         mapping = {
             "address": {
                 "analyzer": "edgengram_analyzer",
-                "store": True,
+                "store": False,
                 "term_vector": "with_positions_offsets",
                 "type": "string"
             },
@@ -368,15 +363,22 @@ class SearchFeed:
             },
             "title": {
                 "analyzer": "edgengram_analyzer",
-                "store": True,
+                "store": False,
+                "term_vector": "with_positions_offsets",
+                "type": "string"
+            },
+            "link": {
+                "analyzer": "edgengram_analyzer",
+                "store": False,
                 "term_vector": "with_positions_offsets",
                 "type": "string"
             }
         }
-        cls.ES.indices.put_mapping("%s-type" % cls.name, {
+        cls.ES().indices.put_mapping(cls.type_name(), {
             'properties': mapping,
-        }, ["%s-index" % cls.name])
-        
+        }, [cls.index_name()])
+        cls.ES().indices.flush()
+
     @classmethod
     def index(cls, feed_id, title, address, link, num_subscribers):
         doc = {
@@ -387,35 +389,39 @@ class SearchFeed:
             "num_subscribers"   : num_subscribers,
         }
         try:
-            cls.ES.index(doc, "%s-index" % cls.name, "%s-type" % cls.name, feed_id)
+            cls.ES().index(doc, cls.index_name(), cls.type_name(), feed_id)
         except pyes.exceptions.NoServerAvailable:
             logging.debug(" ***> ~FRNo search server available.")
-        
+
     @classmethod
-    def query(cls, text):
-        cls.create_elasticsearch_mapping()
+    def query(cls, text, max_subscribers=5):
         try:
-            cls.ES.default_indices = cls.index_name()
-            cls.ES.indices.refresh()
+            cls.ES().default_indices = cls.index_name()
+            cls.ES().indices.refresh()
         except pyes.exceptions.NoServerAvailable:
             logging.debug(" ***> ~FRNo search server available.")
             return []
         
-        logging.info("~FGSearch ~FCfeeds~FG by address: ~SB%s" % text)
-        q = MatchQuery('address', text, operator="and", type="phrase")
-        results = cls.ES.search(query=q, sort="num_subscribers:desc", size=5,
-                                doc_types=[cls.type_name()])
+        if settings.DEBUG:
+            max_subscribers = 1
+        
+        logging.info("~FGSearch ~FCfeeds~FG: ~SB%s" % text)
+        q = pyes.query.BoolQuery()
+        q.add_should(pyes.query.MatchQuery('address', text, analyzer="simple", cutoff_frequency=0.0005, minimum_should_match="75%"))
+        q.add_should(pyes.query.MatchQuery('link', text, analyzer="simple", cutoff_frequency=0.0005, minimum_should_match="75%"))
+        q.add_should(pyes.query.MatchQuery('title', text, analyzer="simple", cutoff_frequency=0.0005, minimum_should_match="75%"))
+        q = pyes.Search(q, min_score=1)
+        results = cls.ES().search(query=q, size=max_subscribers, doc_types=[cls.type_name()], sort="num_subscribers:desc")
 
-        if not results.total:
-            logging.info("~FGSearch ~FCfeeds~FG by title: ~SB%s" % text)
-            q = MatchQuery('title', text, operator="and")
-            results = cls.ES.search(query=q, sort="num_subscribers:desc", size=5,
-                                    doc_types=[cls.type_name()])
-            
-        if not results.total:
-            logging.info("~FGSearch ~FCfeeds~FG by link: ~SB%s" % text)
-            q = MatchQuery('link', text, operator="and")
-            results = cls.ES.search(query=q, sort="num_subscribers:desc", size=5,
-                                    doc_types=[cls.type_name()])
-            
         return results
+    
+    @classmethod
+    def export_csv(cls):
+        import djqscsv
+
+        qs = Feed.objects.filter(num_subscribers__gte=20).values('id', 'feed_title', 'feed_address', 'feed_link', 'num_subscribers')
+        csv = djqscsv.render_to_csv_response(qs).content
+        f = open('feeds.csv', 'w+')
+        f.write(csv)
+        f.close()
+        

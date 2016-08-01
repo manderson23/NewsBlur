@@ -2,6 +2,8 @@ package com.newsblur.network;
 
 public class APIConstants {
 
+    private APIConstants() {} // util class - no instances
+
     public static final String NEWSBLUR_URL = "https://www.newsblur.com";
     public static final String COOKIE_DOMAIN = ".newsblur.com";
     public static final String URL_AUTOFOLLOW_PREF = NEWSBLUR_URL + "/profile/set_preference";
@@ -16,7 +18,8 @@ public class APIConstants {
 	public static final String URL_MY_PROFILE = NEWSBLUR_URL + "/social/load_user_profile";
 	public static final String URL_FOLLOW = NEWSBLUR_URL + "/social/follow";
 	public static final String URL_UNFOLLOW = NEWSBLUR_URL + "/social/unfollow";
-	
+
+	public static final String URL_USER_ACTIVITIES = NEWSBLUR_URL + "/social/activities";
 	public static final String URL_USER_INTERACTIONS = NEWSBLUR_URL + "/social/interactions";
 	public static final String URL_RIVER_STORIES = NEWSBLUR_URL + "/reader/river_stories";
 	public static final String URL_SHARED_RIVER_STORIES = NEWSBLUR_URL + "/social/river_stories";
@@ -44,6 +47,7 @@ public class APIConstants {
 	public static final String URL_STORY_TEXT = NEWSBLUR_URL + "/rss_feeds/original_text";
 	public static final String URL_UNREAD_HASHES = NEWSBLUR_URL + "/reader/unread_story_hashes";
     public static final String URL_READ_STORIES = NEWSBLUR_URL + "/reader/read_stories";
+    public static final String URL_MOVE_FEED_TO_FOLDERS = NEWSBLUR_URL + "/reader/move_feed_to_folders";
 	
 	public static final String PARAMETER_FEEDS = "f";
 	public static final String PARAMETER_H = "h";
@@ -77,13 +81,21 @@ public class APIConstants {
 	public static final String PARAMETER_INCLUDE_TIMESTAMPS = "include_timestamps";
     public static final String PARAMETER_GLOBAL_FEED = "global_feed";
 	public static final String PARAMETER_INCLUDE_HIDDEN = "include_hidden";
+	public static final String PARAMETER_LIMIT = "limit";
+    public static final String PARAMETER_TO_FOLDER = "to_folders";
+    public static final String PARAMETER_IN_FOLDERS = "in_folders";
+    public static final String PARAMETER_QUERY = "query";
+    public static final String PARAMETER_TAG = "tag";
 
     public static final String VALUE_PREFIX_SOCIAL = "social:";
     public static final String VALUE_ALLSOCIAL = "river:blurblogs"; // the magic value passed to the mark-read API for all social feeds
     public static final String VALUE_OLDER = "older";
     public static final String VALUE_NEWER = "newer";
     public static final String VALUE_TRUE = "true";
+    public static final String VALUE_STARRED = "starred";
 	
     public static final String URL_CONNECT_FACEBOOK = NEWSBLUR_URL + "/oauth/facebook_connect/";
     public static final String URL_CONNECT_TWITTER = NEWSBLUR_URL + "/oauth/twitter_connect/";
+
+	public static final String S3_URL_FEED_ICONS = "https://s3.amazonaws.com/icons.newsblur.com/";
 }

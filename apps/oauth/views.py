@@ -2,6 +2,7 @@ import urllib
 import urlparse
 import datetime
 import lxml.html
+import tweepy
 from django.contrib.auth.decorators import login_required
 from django.core.urlresolvers import reverse
 from django.contrib.auth.models import User
@@ -23,7 +24,6 @@ from utils.view_functions import render_to
 from utils import urlnorm
 from utils import json_functions as json
 from vendor import facebook
-from vendor import tweepy
 from vendor import appdotnet
 
 @login_required
@@ -41,12 +41,13 @@ def twitter_connect(request):
     elif oauth_token and oauth_verifier:
         try:
             auth = tweepy.OAuthHandler(twitter_consumer_key, twitter_consumer_secret)
-            auth.set_request_token(oauth_token, oauth_verifier)
-            access_token = auth.get_access_token(oauth_verifier)
+            auth.request_token = request.session['twitter_request_token']
+            # auth.set_request_token(oauth_token, oauth_verifier)
+            auth.get_access_token(oauth_verifier)
             api = tweepy.API(auth)
             twitter_user = api.me()
-        except (tweepy.TweepError, IOError):
-            logging.user(request, "~BB~FRFailed Twitter connect")
+        except (tweepy.TweepError, IOError), e:
+            logging.user(request, "~BB~FRFailed Twitter connect: %s" % e)
             return dict(error="Twitter has returned an error. Try connecting again.")
 
         # Be sure that two people aren't using the same Twitter account.
@@ -61,10 +62,10 @@ def twitter_connect(request):
             except User.DoesNotExist:
                 existing_user.delete()
 
-        social_services, _ = MSocialServices.objects.get_or_create(user_id=request.user.pk)
+        social_services = MSocialServices.get_user(request.user.pk)
         social_services.twitter_uid = unicode(twitter_user.id)
-        social_services.twitter_access_key = access_token.key
-        social_services.twitter_access_secret = access_token.secret
+        social_services.twitter_access_key = auth.access_token
+        social_services.twitter_access_secret = auth.access_token_secret
         social_services.syncing_twitter = True
         social_services.save()
 
@@ -76,7 +77,8 @@ def twitter_connect(request):
         # Start the OAuth process
         auth = tweepy.OAuthHandler(twitter_consumer_key, twitter_consumer_secret)
         auth_url = auth.get_authorization_url()
-        logging.user(request, "~BB~FRStarting Twitter connect")
+        request.session['twitter_request_token'] = auth.request_token
+        logging.user(request, "~BB~FRStarting Twitter connect: %s" % auth.request_token)
         return {'next': auth_url}
 
 
@@ -89,7 +91,7 @@ def facebook_connect(request):
     args = {
         "client_id": facebook_app_id,
         "redirect_uri": "http://" + Site.objects.get_current().domain + reverse('facebook-connect'),
-        "scope": "offline_access,user_website,publish_actions",
+        "scope": "user_website,user_friends,publish_actions",
         "display": "popup",
     }
 
@@ -125,7 +127,7 @@ def facebook_connect(request):
             except User.DoesNotExist:
                 existing_user.delete()
 
-        social_services, _ = MSocialServices.objects.get_or_create(user_id=request.user.pk)
+        social_services = MSocialServices.get_user(request.user.pk)
         social_services.facebook_uid = uid
         social_services.facebook_access_token = access_token
         social_services.syncing_facebook = True
@@ -184,7 +186,7 @@ def appdotnet_connect(request):
             except User.DoesNotExist:
                 existing_user.delete()
         
-        social_services, _ = MSocialServices.objects.get_or_create(user_id=request.user.pk)
+        social_services = MSocialServices.get_user(request.user.pk)
         social_services.appdotnet_uid = unicode(adn_userid)
         social_services.appdotnet_access_token = access_token
         social_services.syncing_appdotnet = True
@@ -630,9 +632,15 @@ def api_share_new_story(request):
     story_title = fields.get('story_title', "")
     story_author = fields.get('story_author', "")
     comments = fields.get('comments', None)
-
+        
+    logging.user(request.user, "~FBFinding feed (api_share_new_story): %s" % story_url)
     original_feed = Feed.get_feed_from_url(story_url, create=True, fetch=True)
-    
+    story_hash = MStory.guid_hash_unsaved(story_url)
+    if not user.profile.is_premium and MSharedStory.feed_quota(user.pk, original_feed and original_feed.pk or 0, story_hash):
+        return {"errors": [{
+            'message': 'Only premium users can share multiple stories per day from the same site.'
+        }]}
+        
     if not story_content or not story_title:
         ti = TextImporter(feed=original_feed, story_url=story_url, request=request)
         original_story = ti.fetch(return_document=True)
@@ -711,6 +719,7 @@ def api_save_new_story(request):
     user_tags = fields.get('user_tags', "")
     story = None
     
+    logging.user(request.user, "~FBFinding feed (api_save_new_story): %s" % story_url)
     original_feed = Feed.get_feed_from_url(story_url)
     if not story_content or not story_title:
         ti = TextImporter(feed=original_feed, story_url=story_url, request=request)
