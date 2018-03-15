@@ -34,6 +34,8 @@ public class InitActivity extends Activity {
             }
         }.execute();
 
+        com.newsblur.util.Log.i(this, "cold launching version " + PrefsUtils.getVersion(this));
+
     }
 
     private void start() {
@@ -64,7 +66,8 @@ public class InitActivity extends Activity {
         boolean upgrade = PrefsUtils.checkForUpgrade(this);
         if (upgrade) {
             FeedUtils.dbHelper.dropAndRecreateTables();
-            PrefsUtils.updateVersion(this);
+            // don't actually unset the upgrade flag, the sync service will do this same check and
+            // update everything
         }
     }
 

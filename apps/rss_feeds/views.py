@@ -251,7 +251,7 @@ def load_feed_settings(request, feed_id):
     
     return stats
 
-@ratelimit(minutes=10, requests=10)
+@ratelimit(minutes=5, requests=30)
 @json.json_view
 def exception_retry(request):
     user = get_user(request)
@@ -316,9 +316,9 @@ def exception_change_feed_address(request):
     timezone = request.user.profile.timezone
     code = -1
 
-    if (feed.has_page_exception or feed.has_feed_exception):
+    if False and (feed.has_page_exception or feed.has_feed_exception):
         # Fix broken feed
-        logging.user(request, "~FRFixing feed exception by address: ~SB%s~SN to ~SB%s" % (feed.feed_address, feed_address))
+        logging.user(request, "~FRFixing feed exception by address: %s - ~SB%s~SN to ~SB%s" % (feed, feed.feed_address, feed_address))
         feed.has_feed_exception = False
         feed.active = True
         feed.fetched_once = False
@@ -400,7 +400,7 @@ def exception_change_feed_link(request):
     timezone = request.user.profile.timezone
     code = -1
     
-    if (feed.has_page_exception or feed.has_feed_exception):
+    if False and (feed.has_page_exception or feed.has_feed_exception):
         # Fix broken feed
         logging.user(request, "~FRFixing feed exception by link: ~SB%s~SN to ~SB%s" % (feed.feed_link, feed_link))
         found_feed_urls = feedfinder.find_feeds(feed_link)
@@ -489,7 +489,6 @@ def status(request):
         'feeds': feeds
     }, context_instance=RequestContext(request))
 
-@required_params('story_id', feed_id=int)
 @json.json_view
 def original_text(request):
     story_id = request.REQUEST.get('story_id')
@@ -510,8 +509,9 @@ def original_text(request):
     original_text = story.fetch_original_text(force=force, request=request, debug=debug)
 
     return {
-        'feed_id': feed_id,
-        'story_id': story_id,
+        'feed_id': story.story_feed_id,
+        'story_hash': story.story_hash,
+        'story_id': story.story_guid,
         'original_text': original_text,
         'failed': not original_text or len(original_text) < 100,
     }

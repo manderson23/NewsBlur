@@ -19,7 +19,6 @@ NEWSBLUR.Views.FeedSearchView = Backbone.View.extend({
     
     render: function() {
         if (NEWSBLUR.app.active_search) {
-            NEWSBLUR.app.active_search.blur_search();
             NEWSBLUR.app.active_search.remove();
         }
         NEWSBLUR.app.active_search = this;
@@ -177,7 +176,7 @@ NEWSBLUR.Views.FeedSearchView = Backbone.View.extend({
     
     search: function() {
         var $search = this.$("input[name=feed_search]");
-        var query = $search.val();
+        var query = _.escape($search.val());
         
         if (query != NEWSBLUR.reader.flags.search) {
             NEWSBLUR.reader.flags.searching = true;

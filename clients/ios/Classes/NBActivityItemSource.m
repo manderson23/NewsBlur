@@ -29,6 +29,8 @@
 -(id)activityViewController:(UIActivityViewController *)activityViewController itemForActivityType:(NSString *)activityType {
     if ([activityType isEqualToString:UIActivityTypeMail]) {
         return text;
+    } else if ([activityType isEqualToString:UIActivityTypeMessage]) {
+        return url;
     } else if ([activityType isEqualToString:@"com.evernote.iPhone.Evernote.EvernoteShare"]) {
         return @{@"body": text ?: (url ?: @""), @"subject": title};
     } else if ([activityType isEqualToString:UIActivityTypeAddToReadingList] ||
@@ -39,7 +41,8 @@
                [activityType isEqualToString:@"TUSafariActivity"] ||
                [activityType isEqualToString:@"ARChromeActivity"] ||
                [activityType isEqualToString:@"com.apple.mobilenotes.SharingExtension"] ||
-               [activityType isEqualToString:@"com.omnigroup.OmniFocus2.iPad.QuickEntry"]) {
+               [activityType isEqualToString:@"com.omnigroup.OmniFocus2.iPad.QuickEntry"] ||
+               [activityType isEqualToString:@"com.tapbots.Tweetbot4.shareextension"]) {
         return title;
     }
     

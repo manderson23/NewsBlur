@@ -10,6 +10,7 @@ NEWSBLUR.Models.FeedOrFolder = Backbone.Model.extend({
             }
         } else if (model && model.fake) {
             this.folders = model.folders;
+            this.set('folder_title', this.fake_folder_title());
         } else if (model) {
             var title = _.keys(model)[0];
             var children = model[title];
@@ -52,11 +53,23 @@ NEWSBLUR.Models.FeedOrFolder = Backbone.Model.extend({
         return view;
     },
     
-    feed_ids_in_folder: function(include_inactive) {
-        if (this.is_feed() && (include_inactive || (!include_inactive && this.feed.get('active')))) {
-            return this.feed.id;
+    feed_ids_in_folder: function(options) {
+        options = options || {};
+        if (this.is_feed()) {
+            if (options.include_inactive) {
+                return this.feed.id;
+            }
+            if (options.unread_only) {
+                var counts = this.feed.unread_counts();
+                if (counts.ps + counts.nt + counts.ng > 0) {
+                    return this.feed.id;
+                }
+            }
+            if (this.feed.get('active')) {
+                return this.feed.id;
+            }
         } else if (this.is_folder()) {
-            return this.folders.feed_ids_in_folder(include_inactive);
+            return this.folders.feed_ids_in_folder(options);
         }
     },
     
@@ -219,9 +232,10 @@ NEWSBLUR.Collections.Folders = Backbone.Collection.extend({
         return names;
     },
     
-    feed_ids_in_folder: function(include_inactive) {
+    feed_ids_in_folder: function(options) {
+        options = options || {};
         return _.compact(_.flatten(this.map(function(item) {
-            return item.feed_ids_in_folder(include_inactive);
+            return item.feed_ids_in_folder(options);
         })));
     },
     
@@ -370,24 +384,34 @@ NEWSBLUR.Collections.Folders = Backbone.Collection.extend({
             return !feedA ? 1 : -1;
         }
         
+        var remove_articles = function(str) {
+            words = str.split(" ");
+            if (words.length <= 1) return str;
+            if (words[0] == 'the') return words.splice(1).join(" ");
+            return str;
+        };
+        
+        var feed_a_title = remove_articles(feedA.get('feed_title').toLowerCase());
+        var feed_b_title = remove_articles(feedB.get('feed_title').toLowerCase());
+        
         if (sort_order == 'ALPHABETICAL' || !sort_order) {
-            return feedA.get('feed_title').toLowerCase() > feedB.get('feed_title').toLowerCase() ? high : low;
+            return feed_a_title > feed_b_title ? high : low;
         } else if (sort_order == 'MOSTUSED') {
             return feedA.get('feed_opens') < feedB.get('feed_opens') ? high : 
                 (feedA.get('feed_opens') > feedB.get('feed_opens') ? low : 
-                (feedA.get('feed_title').toLowerCase() > feedB.get('feed_title').toLowerCase() ? high : low));
+                (feed_a_title > feed_b_title ? high : low));
         } else if (sort_order == 'RECENCY') {
             return feedA.get('last_story_seconds_ago') < feedB.get('last_story_seconds_ago') ? high : 
                 (feedA.get('last_story_seconds_ago') > feedB.get('last_story_seconds_ago') ? low : 
-                (feedA.get('feed_title').toLowerCase() > feedB.get('feed_title').toLowerCase() ? high : low));            
+                (feed_a_title > feed_b_title ? high : low));            
         } else if (sort_order == 'FREQUENCY') {
             return feedA.get('average_stories_per_month') < feedB.get('average_stories_per_month') ? high : 
                 (feedA.get('average_stories_per_month') > feedB.get('average_stories_per_month') ? low : 
-                (feedA.get('feed_title').toLowerCase() > feedB.get('feed_title').toLowerCase() ? high : low)); 
+                (feed_a_title > feed_b_title ? high : low)); 
         } else if (sort_order == 'SUBSCRIBERS') {
             return feedA.get('num_subscribers') < feedB.get('num_subscribers') ? high : 
                 (feedA.get('num_subscribers') > feedB.get('num_subscribers') ? low : 
-                (feedA.get('feed_title').toLowerCase() > feedB.get('feed_title').toLowerCase() ? high : low)); 
+                (feed_a_title > feed_b_title ? high : low)); 
         }
     }
 

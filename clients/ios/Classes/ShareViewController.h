@@ -9,8 +9,7 @@
 #import <UIKit/UIKit.h>
 #import "NewsBlurAppDelegate.h"
 
-@interface ShareViewController : BaseViewController <ASIHTTPRequestDelegate, UITextViewDelegate> {
-    NewsBlurAppDelegate *appDelegate;
+@interface ShareViewController : BaseViewController <UITextViewDelegate> {
     NSString *activeReplyId;
 }
 
@@ -18,7 +17,6 @@
 @property (nonatomic) IBOutlet NewsBlurAppDelegate *appDelegate;
 @property (nonatomic) IBOutlet UIButton *facebookButton;
 @property (nonatomic) IBOutlet UIButton *twitterButton;
-@property (nonatomic) IBOutlet UIButton *appdotnetButton;
 @property (nonatomic) IBOutlet UIBarButtonItem *submitButton;
 @property (nonatomic) IBOutlet UILabel *storyTitle;
 @property (nonatomic) NSString * activeReplyId;
@@ -34,9 +32,6 @@
 - (IBAction)doToggleButton:(id)sender;
 - (IBAction)doShareThisStory:(id)sender;
 - (IBAction)doReplyToComment:(id)sender;
-- (void)finishShareThisStory:(ASIHTTPRequest *)request;
-- (void)finishAddReply:(ASIHTTPRequest *)request;
-- (void)requestFailed:(ASIHTTPRequest *)request;
 - (void)replaceStory:(NSDictionary *)newStory withReplyId:(NSString *)replyId;
 - (void)adjustShareButtons;
 - (void)adjustCommentField:(CGSize)kbSize;

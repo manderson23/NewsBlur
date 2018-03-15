@@ -1,15 +1,20 @@
 NEWSBLUR.Models.Story = Backbone.Model.extend({
     
     initialize: function() {
-        this.bind('change:selected', this.change_selected);
         this.bind('change:shared_comments', this.populate_comments);
         this.bind('change:comments', this.populate_comments);
         this.bind('change:comment_count', this.populate_comments);
         this.bind('change:starred', this.change_starred);
         this.bind('change:user_tags', this.change_user_tags);
+        this.bind('change:selected', this.select_story);
         this.populate_comments();
         this.story_permalink = this.get('story_permalink');
         this.story_title = this.get('story_title');
+    },
+    
+    select_story: function(story, selected) {
+        // console.log(['select_story', this, this.collection, story, selected]);
+        if (this.collection) this.collection.detect_selected_story(this, selected);
     },
     
     populate_comments: function(story, collection) {
@@ -41,9 +46,10 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
         return _.string.prune(_.string.trim(content), length || 150, "...");
     },
     
-    image_url: function() {
-        if (this.get('image_urls').length) {
-            return this.get('image_urls')[0];
+    image_url: function(index) {
+        if (!index) index = 0;
+        if (this.get('image_urls').length >= index+1) {
+            return this.get('image_urls')[index];
         }
     },
     
@@ -63,14 +69,26 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
             midnight.setSeconds(0);
             return midnight;
         };
+        var midnight_tomorrow = function(midnight, days) {
+            if (!days) days = 1;
+            return new Date(midnight.getTime() + days*60*60*24*1000);
+        };
         var midnight_yesterday = function(midnight) {
-            return new Date(midnight - 60*60*24*1000);
+            return midnight_tomorrow(midnight, -1);
         };
         var midnight = midnight_today();
         var time = date.format(dateformat == "24" ? "H:i" : "g:ia");
 
         if (date > midnight) {
-            return time;
+            if (date > midnight_tomorrow(midnight)) {
+                if (date < midnight_tomorrow(midnight, 2)) {
+                    return "Tomorrow, " + time;
+                } else {
+                    return date.format("d M Y, ") + time;
+                }
+            } else {
+                return time;
+            }
         } else if (date > midnight_yesterday(midnight)) {
             return "Yesterday, " + time;
         } else {
@@ -89,8 +107,12 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
             midnight.setSeconds(0);
             return midnight;
         };
+        var midnight_tomorrow = function(midnight, days) {
+            if (!days) days = 1;
+            return new Date(midnight.getTime() + days*60*60*24*1000);
+        };
         var midnight_yesterday = function(midnight) {
-            return new Date(midnight - 60*60*24*1000);
+            return midnight_tomorrow(midnight, -1);
         };
         var beginning_of_month = function() {
             var month = new Date();
@@ -103,7 +125,15 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
         var midnight = midnight_today();
         var time = date.format(dateformat == "24" ? "H:i" : "g:ia");
         if (date > midnight) {
-            return "Today, " + date.format("F jS ") + time;
+            if (date > midnight_tomorrow(midnight)) {
+                if (date < midnight_tomorrow(midnight, 2)) {
+                    return "Tomorrow, " + date.format("F jS ") + time;
+                } else {
+                    return date.format("l, F jS Y ") + time;
+                }
+            } else {
+                return "Today, " + date.format("F jS ") + time;
+            }
         } else if (date > midnight_yesterday(midnight)) {
             return "Yesterday, " + date.format("F jS ") + time;
         } else if (date > beginning_of_month()) {
@@ -124,10 +154,24 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
         // on a WebKit-based browser (WebKitGTK or QTWebKit). These can't handle
         // background tabs. Work around it by disabling backgrounding if we
         // think we're on Safari and we're also on X11 or Linux
-        if ($.browser.safari && /(\(X11|Linux)/.test(navigator.userAgent)) {
+        if ($.browser.safari && (/(\(X11|Linux)/.test(navigator.userAgent))) {
             background = false;
         }
-
+        
+        if (background && $.browser.webkit) {
+            var event = new CustomEvent("openInNewTab", {
+                bubbles: true,
+                detail: {background: background}
+            });
+            var success = !this.story_title_view.$st.find('a')[0].dispatchEvent(event);
+            if (success) {
+                // console.log(['Used safari extension to open link in background', success]);
+                return;
+            } else {
+                // console.log(['Safari extension failed to open link in background', success, this.story_title_view.$st.find('a')[0]]);
+            }
+        }
+        
         if (background && !$.browser.mozilla) {
             var anchor, event;
 
@@ -135,7 +179,13 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
             anchor.href = this.get('story_permalink');
             event = document.createEvent("MouseEvents");
             event.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, true, false, false, true, 0, null);
-            return anchor.dispatchEvent(event);
+            var success = anchor.dispatchEvent(event);
+            if (success) {
+                // console.log(['Opened link in background', anchor.href]);
+                return success;
+            } else {
+                // console.log(['Failed to open link in background', anchor.href]);
+            }
         } else {
             window.open(this.get('story_permalink'), '_blank');
             window.focus();
@@ -155,13 +205,7 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
             });
         }
     },
-    
-    change_selected: function(model, selected) {
-        if (model.collection) {
-            model.collection.detect_selected_story(model, selected);
-        }
-    },
-    
+        
     // =================
     // = Saved Stories =
     // =================
@@ -238,7 +282,7 @@ NEWSBLUR.Models.Story = Backbone.Model.extend({
 NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
     
     model: NEWSBLUR.Models.Story,
-   
+    
     read_stories: [],
     
     previous_stories_stack: [],
@@ -246,8 +290,9 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
     active_story: null,
     
     initialize: function() {
-        // this.bind('change:selected', this.detect_selected_story, this);
+        // this.bind('change:selected', this.detect_selected_story, this); // Handled in the Story model so it fires first
         this.bind('reset', this.clear_previous_stories_stack, this);
+        // this.bind('change:selected', this.change_selected);
     },
     
     // ===========
@@ -295,6 +340,18 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
         }
     },
     
+    mark_read_pubsub: function(story_hash) {
+        var story = this.get_by_story_hash(story_hash);
+        if (!story) return;
+        story.set('read_status', 1);
+    },
+    
+    mark_unread_pubsub: function(story_hash) {
+        var story = this.get_by_story_hash(story_hash);
+        if (!story) return;
+        story.set('read_status', 0);
+    },
+    
     mark_unread: function(story, options) {
         options = options || {};
         NEWSBLUR.assets.mark_story_as_unread(story.id, story.get('story_feed_id'), _.bind(function(read) {
@@ -320,7 +377,7 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
         if (!active_feed) {
             // River of News does not have an active feed.
             active_feed = story_feed;
-        } else if (active_feed && active_feed.is_social()) {
+        } else if (active_feed && active_feed.is_feed() && active_feed.is_social()) {
             friend_feeds = _.without(friend_feeds, active_feed);
         }
         
@@ -426,6 +483,10 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
         });
     },
     
+    limit: function(count) {
+        this.models = this.models.slice(0, count);
+    },
+    
     // ===========
     // = Getters =
     // ===========
@@ -435,7 +496,7 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
         if (direction == -1) return this.get_previous_story(options);
 
         var visible_stories = this.visible(options.score);
-
+        console.log(['get_next_story', this.active_story, this == NEWSBLUR.assets.stories ? "stories" : "dashboard"]);
         if (!this.active_story) {
             return visible_stories[0];
         }
@@ -495,12 +556,25 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
         return _.last(visible_stories);
     },
     
+    get_by_story_hash: function(story_hash) {
+        return this.detect(function(s) { return s.get('story_hash') == story_hash; });
+    },
+    
+    deselect: function() {
+        this.each(function(story){ 
+            if (story.get('selected')) {
+                story.set('selected', false); 
+            }
+        });
+    },
+    
     // ==========
     // = Events =
     // ==========
     
     detect_selected_story: function(selected_story, selected) {
         if (selected) {
+            // console.log(['detect_selected_story', selected, selected_story, this.active_story, this == NEWSBLUR.assets.stories ? "stories" : "dashboard"]);
             this.deselect_other_stories(selected_story);
             this.active_story = selected_story;
             NEWSBLUR.reader.active_story = selected_story;
@@ -510,5 +584,5 @@ NEWSBLUR.Collections.Stories = Backbone.Collection.extend({
             }
         }
     }
-    
+        
 });

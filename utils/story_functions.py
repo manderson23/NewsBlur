@@ -86,7 +86,9 @@ def pre_process_story(entry, encoding):
     if entry['published'] < datetime.datetime(2000, 1, 1):
         entry['published'] = datetime.datetime.utcnow()
     
-    if entry['published'] > datetime.datetime.now() + datetime.timedelta(days=1):
+    # Future dated stories get forced to current date
+    # if entry['published'] > datetime.datetime.now() + datetime.timedelta(days=1):
+    if entry['published'] > datetime.datetime.now():
         entry['published'] = datetime.datetime.now()
     
     # entry_link = entry.get('link') or ''
@@ -120,9 +122,9 @@ def pre_process_story(entry, encoding):
             pass
         
     # Add each media enclosure as a Download link
-    for media_content in chain(entry.get('media_content', [])[:5], entry.get('links', [])[:5]):
+    for media_content in chain(entry.get('media_content', [])[:15], entry.get('links', [])[:15]):
         media_url = media_content.get('url', '')
-        media_type = media_content.get('type', '')
+        media_type = media_content.get('type', media_content.get('medium', ''))
         if media_url and media_type and entry['story_content'] and media_url not in entry['story_content']:
             media_type_name = media_type.split('/')[0]
             if 'audio' in media_type and media_url:
@@ -133,10 +135,10 @@ def pre_process_story(entry, encoding):
                         'media_url': media_url, 
                         'media_type': media_type
                     }
-            elif 'image' in media_type and media_url:
+            elif 'image' in media_type and media_url and media_url not in entry['story_content']:
                 entry['story_content'] += """<br><br><img src="%s" />"""  % media_url
                 continue
-            elif media_content.get('rel') == 'alternative' or 'text' in media_content.get('type'):
+            elif media_content.get('rel', '') == 'alternative' or 'text' in media_content.get('type', ''):
                 continue
             elif media_type_name in ['application']:
                 continue

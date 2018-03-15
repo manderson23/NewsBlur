@@ -10,7 +10,6 @@
 #import "NBContainerViewController.h"
 #import "StringHelper.h"
 #import "Utilities.h"
-#import "Base64.h"
 #import "AFNetworking.h"
 #import "StoriesCollection.h"
 
@@ -40,7 +39,7 @@
     
     UIBarButtonItem *done = [[UIBarButtonItem alloc]
                              initWithTitle:@"Done Training"
-                             style:UIBarButtonSystemItemDone
+                             style:UIBarButtonItemStyleDone
                              target:self
                              action:@selector(doCloseDialog:)];
     self.navigationItem.rightBarButtonItem = done;
@@ -80,37 +79,32 @@
         MBProgressHUD *HUD = [MBProgressHUD showHUDAddedTo:self.view animated:YES];
         HUD.labelText = @"Loading trainer...";
         NSString *feedId = [self feedId];
-        NSURL *url = [NSURL URLWithString:[NSString
-                                           stringWithFormat:@"%@/reader/feeds_trainer?feed_id=%@",
-                                           self.appDelegate.url, feedId]];
-
-        __weak __typeof(&*self)weakSelf = self;
-        AFHTTPRequestOperation *request = [[AFHTTPRequestOperation alloc] initWithRequest:[NSURLRequest requestWithURL:url]];
-        [request setResponseSerializer:[AFJSONResponseSerializer serializer]];
-        [request setCompletionBlockWithSuccess:^(AFHTTPRequestOperation * _Nonnull operation, id  _Nonnull responseObject) {
-            __strong __typeof(&*weakSelf)strongSelf = weakSelf;
-            if (!strongSelf) return;
-            [MBProgressHUD hideHUDForView:strongSelf.view animated:YES];
-            NSDictionary *results = [responseObject objectAtIndex:0];
-            NSMutableDictionary *newClassifiers = [[results objectForKey:@"classifiers"] mutableCopy];
-            [appDelegate.storiesCollection.activeClassifiers setObject:newClassifiers
-                                                                forKey:feedId];
-            appDelegate.storiesCollection.activePopularAuthors = [results objectForKey:@"feed_authors"];
-            appDelegate.storiesCollection.activePopularTags = [results objectForKey:@"feed_tags"];
+        NSString *urlString = [NSString stringWithFormat:@"%@/reader/feeds_trainer?feed_id=%@",
+                               self.appDelegate.url, feedId];
+        [appDelegate.networkManager GET:urlString parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+            [MBProgressHUD hideHUDForView:self.view animated:YES];
+            NSArray *resultsArray = responseObject;
+            if (resultsArray.count) {
+                NSDictionary *results = resultsArray[0];
+                NSMutableDictionary *newClassifiers = [[results objectForKey:@"classifiers"] mutableCopy];
+                [appDelegate.storiesCollection.activeClassifiers setObject:newClassifiers
+                                                                    forKey:feedId];
+                appDelegate.storiesCollection.activePopularAuthors = [results objectForKey:@"feed_authors"];
+                appDelegate.storiesCollection.activePopularTags = [results objectForKey:@"feed_tags"];
+            }
             [self renderTrainer];
-        } failure:^(AFHTTPRequestOperation * _Nonnull operation, NSError * _Nonnull error) {
+        } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
             NSLog(@"Failed fetch trainer: %@", error);
             [self informError:@"Could not load trainer"];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1.0 * NSEC_PER_SEC),
                            dispatch_get_main_queue(), ^() {
-                if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
-                    [appDelegate hidePopover];
-                } else {
-                    [appDelegate.navigationController dismissViewControllerAnimated:YES completion:nil];
-                }
-            });
+                               if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+                                   [appDelegate hidePopover];
+                               } else {
+                                   [appDelegate.navigationController dismissViewControllerAnimated:YES completion:nil];
+                               }
+                           });
         }];
-        [request start];
     } else {
         [self renderTrainer];
     }
@@ -427,7 +421,7 @@
     UIImage *favicon = [appDelegate getFavicon:feedId];
     NSData *faviconData = UIImagePNGRepresentation(favicon);
     NSString *feedImageUrl = [NSString stringWithFormat:@"data:image/png;charset=utf-8;base64,%@",
-                              [faviconData base64Encoding]];
+                              [faviconData base64EncodedDataWithOptions:NSDataBase64Encoding64CharacterLineLength]];
     NSString *publisherTitle = [NSString stringWithFormat:@"<img class=\"feed_favicon\" src=\"%@\"> %@",
                                 feedImageUrl, feedTitle];
     NSString *storyPublisher = [NSString stringWithFormat:@"<div class=\"NB-trainer-section-inner\">"

@@ -6,62 +6,34 @@
 #pragma mark -
 #pragma mark HTTP requests
 
-- (ASIHTTPRequest*) requestWithURL:(NSString*) s {
-    ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:s]];
-    [request setValidatesSecureCertificate:NO];
-	[self addRequest:request];
-	return request;
-}
+- (instancetype)init {
+    if (self = [super init]) {
 
-- (ASIFormDataRequest*) formRequestWithURL:(NSString*) s {
-	ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:[NSURL URLWithString:s]];
-	[self addRequest:request];
-	return request;
-}
-
-- (void) addRequest:(ASIHTTPRequest*)request {
-	[request setDelegate:self];
-	if (!requests) {
-		requests = [[NSMutableArray alloc] initWithCapacity:3];
-	} else {
-		[self clearFinishedRequests];
-	}
-	[requests addObject:request];
-}
-
-- (void) clearFinishedRequests {
-	NSMutableArray* toremove = [[NSMutableArray alloc] initWithCapacity:[requests count]];
-	for (ASIHTTPRequest* r in requests) {
-		if ([r isFinished]) {
-			[toremove addObject:r];
-		}
-	}
-	
-	for (ASIHTTPRequest* r in toremove) {
-		[requests removeObject:r];
-	}
-}
-
-- (void) cancelRequests {
-	for (ASIHTTPRequest* r in requests) {
-		r.delegate = nil;
-		[r cancel];
-	}	
-	[requests removeAllObjects];
+    }
+    
+    return self;
 }
 
 #pragma mark -
 #pragma mark View methods
 
 - (void)informError:(id)error {
-    [self informError:error details:nil];
+    [self informError:error details:nil statusCode:0];
 }
 
-- (void)informError:(id)error details:(NSString *)details {
+- (void)informError:(id)error statusCode:(NSInteger)statusCode {
+    [self informError:error details:nil statusCode:statusCode];
+}
+
+- (void)informError:(id)error details:(NSString *)details statusCode:(NSInteger)statusCode {
     NSLog(@"informError: %@", error);
     NSString *errorMessage;
     if ([error isKindOfClass:[NSString class]]) {
         errorMessage = error;
+    } else if (statusCode == 503) {
+        return [self informError:@"In maintenance mode"];
+    } else if (statusCode >= 400) {
+        return [self informError:@"The server barfed!"];
     } else {
         errorMessage = [error localizedDescription];
         if ([error code] == 4 && 
@@ -145,14 +117,5 @@
                                        withTransitionCoordinator:coordinator];
     }
 }
-
-#pragma mark -
-#pragma mark Memory management
-
-- (void)dealloc {
-	[self cancelRequests];
-	
-}
-
 
 @end

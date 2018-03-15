@@ -310,6 +310,23 @@ def profile_is_premium(request):
         'total_subs': total_subs,
     }
 
+@ajax_login_required
+@json.json_view
+def save_ios_receipt(request):
+    receipt = request.REQUEST.get('receipt')
+    product_identifier = request.POST.get('product_identifier')
+    transaction_identifier = request.POST.get('transaction_identifier')
+    
+    logging.user(request, "~BM~FBSaving iOS Receipt: %s %s" % (product_identifier, transaction_identifier))
+    
+    paid = request.user.profile.activate_ios_premium(product_identifier, transaction_identifier)
+    if paid:
+        subject = "iOS Premium: %s (%s)" % (request.user.profile, product_identifier)
+        message = """User: %s (%s) -- Email: %s, product: %s, txn: %s, receipt: %s""" % (request.user.username, request.user.pk, request.user.email, product_identifier, transaction_identifier, receipt)
+        mail_admins(subject, message, fail_silently=True)
+    
+    return request.user.profile
+    
 @login_required
 def stripe_form(request):
     user = request.user
@@ -413,6 +430,7 @@ def payment_history(request):
         "last_seen_ip": user.profile.last_seen_ip,
         "timezone": unicode(user.profile.timezone),
         "stripe_id": user.profile.stripe_id,
+        "paypal_email": user.profile.latest_paypal_email,
         "profile": user.profile,
         "feeds": UserSubscription.objects.filter(user=user).count(),
         "email": user.email,
@@ -590,7 +608,7 @@ def delete_starred_stories(request):
 @ajax_login_required
 @json.json_view
 def delete_all_sites(request):
-    request.user.profile.send_opml_export_email(reason="You have deleted all of your sites, so here's a backup just in case.")
+    request.user.profile.send_opml_export_email(reason="You have deleted all of your sites, so here's a backup of all of your subscriptions just in case.")
     
     subs = UserSubscription.objects.filter(user=request.user)
     sub_count = subs.count()

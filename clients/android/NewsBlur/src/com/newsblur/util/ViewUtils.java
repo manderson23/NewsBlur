@@ -30,7 +30,7 @@ public class ViewUtils {
 		image.setMaxWidth(imageLength);
 		
 		image.setLayoutParams(imageParameters);
-		FeedUtils.imageLoader.displayImage(photoUrl, image, 10f);
+		FeedUtils.iconLoader.displayImage(photoUrl, image, 10f, false);
 		image.setOnClickListener(new OnClickListener() {
 			@Override
 			public void onClick(View view) {
@@ -43,9 +43,6 @@ public class ViewUtils {
 	}
 
     public static void showSystemUI(View view) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) return;
-        // Some layout/drawing artifacts as we don't use the FLAG_LAYOUT flags but otherwise the overlays wouldn't appear
-        // and the action bar would overlap the content
         view.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
     }
 
@@ -60,7 +57,6 @@ public class ViewUtils {
     }
 
     public static boolean isSystemUIHidden(View view) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) return false;
         return (view.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_IMMERSIVE) != 0;
     }
 
@@ -79,6 +75,12 @@ public class ViewUtils {
         if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false;
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         return pm.isPowerSaveMode();
+    }
+
+    public static void setViewElevation(View v, float elevationDP) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return;
+        float elevationPX = UIUtils.dp2px(v.getContext(), elevationDP);
+        v.setElevation(elevationPX);
     }
 
 }

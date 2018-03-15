@@ -8,13 +8,17 @@ import android.app.DialogFragment;
 import android.app.FragmentManager;
 import android.net.Uri;
 import android.support.v4.widget.SwipeRefreshLayout;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.Window;
+import android.view.View.OnKeyListener;
 import android.widget.AbsListView;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.PopupMenu;
 import android.widget.SeekBar;
@@ -30,23 +34,22 @@ import com.newsblur.fragment.FeedIntelligenceSelectorFragment;
 import com.newsblur.fragment.FolderListFragment;
 import com.newsblur.fragment.LoginAsDialogFragment;
 import com.newsblur.fragment.LogoutDialogFragment;
-import com.newsblur.fragment.MarkAllReadDialogFragment.MarkAllReadDialogListener;
 import com.newsblur.fragment.TextSizeDialogFragment;
 import com.newsblur.service.BootReceiver;
 import com.newsblur.service.NBSyncService;
 import com.newsblur.util.AppConstants;
-import com.newsblur.util.FeedSet;
-import com.newsblur.util.FeedUtils;
+import com.newsblur.util.PrefConstants.ThemeValue;
 import com.newsblur.util.PrefsUtils;
 import com.newsblur.util.StateFilter;
 import com.newsblur.util.UIUtils;
 import com.newsblur.view.StateToggleButton.StateChangedListener;
 
-public class Main extends NbActivity implements StateChangedListener, SwipeRefreshLayout.OnRefreshListener, AbsListView.OnScrollListener, PopupMenu.OnMenuItemClickListener, MarkAllReadDialogListener, OnSeekBarChangeListener {
+public class Main extends NbActivity implements StateChangedListener, SwipeRefreshLayout.OnRefreshListener, AbsListView.OnScrollListener, PopupMenu.OnMenuItemClickListener, OnSeekBarChangeListener {
+
+    public static final String EXTRA_FORCE_SHOW_FEED_ID = "force_show_feed_id";
 
 	private FolderListFragment folderFeedList;
 	private FragmentManager fragmentManager;
-    private boolean isLightTheme;
     private SwipeRefreshLayout swipeLayout;
     private boolean wasSwipeEnabled = false;
     @Bind(R.id.main_sync_status) TextView overlayStatusText;
@@ -57,15 +60,12 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
     @Bind(R.id.main_user_name) TextView userName;
     @Bind(R.id.main_unread_count_neut_text) TextView unreadCountNeutText;
     @Bind(R.id.main_unread_count_posi_text) TextView unreadCountPosiText;
+    @Bind(R.id.feedlist_search_query) EditText searchQueryInput;
 
     @Override
 	public void onCreate(Bundle savedInstanceState) {
         PreferenceManager.setDefaultValues(this, R.xml.activity_settings, false);
 
-        isLightTheme = PrefsUtils.isLightThemeSelected(this);
-
-		requestWindowFeature(Window.FEATURE_PROGRESS);
-		requestWindowFeature(Window.FEATURE_INDETERMINATE_PROGRESS);
 		super.onCreate(savedInstanceState);
         getWindow().setBackgroundDrawableResource(android.R.color.transparent);
 
@@ -80,7 +80,8 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
         overlayStatusText.setVisibility(View.VISIBLE);
 
         swipeLayout = (SwipeRefreshLayout)findViewById(R.id.swipe_container);
-        swipeLayout.setColorScheme(R.color.refresh_1, R.color.refresh_2, R.color.refresh_3, R.color.refresh_4);
+        swipeLayout.setColorSchemeResources(R.color.refresh_1, R.color.refresh_2, R.color.refresh_3, R.color.refresh_4);
+        swipeLayout.setProgressBackgroundColorSchemeResource(UIUtils.getThemedResource(this, R.attr.actionbarBackground, android.R.attr.background));
         swipeLayout.setOnRefreshListener(this);
 
 		fragmentManager = getFragmentManager();
@@ -93,35 +94,85 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
 
         Bitmap userPicture = PrefsUtils.getUserImage(this);
         if (userPicture != null) {
-            userPicture = UIUtils.roundCorners(userPicture, 5);
+            userPicture = UIUtils.clipAndRound(userPicture, 5, false);
             userImage.setImageBitmap(userPicture);
         }
         userName.setText(PrefsUtils.getUserDetails(this).username);
+        searchQueryInput.setOnKeyListener(new OnKeyListener() {
+            public boolean onKey(View v, int keyCode, KeyEvent event) {
+                if ((keyCode == KeyEvent.KEYCODE_BACK) && (event.getAction() == KeyEvent.ACTION_DOWN)) {
+                    searchQueryInput.setVisibility(View.GONE);
+                    searchQueryInput.setText("");
+                    checkSearchQuery();
+                    return true;
+                }
+                if ((keyCode == KeyEvent.KEYCODE_ENTER) && (event.getAction() == KeyEvent.ACTION_DOWN)) {
+                    checkSearchQuery();
+                    return true;
+                }   
+                return false;
+            }
+        });
+        searchQueryInput.addTextChangedListener(new TextWatcher() {
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                checkSearchQuery();
+            }
+            public void afterTextChanged(Editable s) {}
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+        });
 	}
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    @Override
     protected void onResume() {
-        super.onResume();
+        try {
+            // due to weird backstack operations coming from notified reading activities,
+            // sometimes we fail to reload. do everything in our power to log
+            super.onResume();
+        } catch (Exception e) {
+            com.newsblur.util.Log.e(getClass().getName(), "error resuming Main", e);
+            finish();
+        }
 
-        // immediately clear the story session to prevent bleed-over into the next
-        FeedUtils.clearStorySession();
-        // also queue a clear right before the feedset switches, so no in-flight stoires bleed
+        String forceShowFeedId = getIntent().getStringExtra(EXTRA_FORCE_SHOW_FEED_ID);
+        if (forceShowFeedId != null) {
+            folderFeedList.forceShowFeed(forceShowFeedId);
+        }
+
+        if (folderFeedList.getSearchQuery() != null) {
+            searchQueryInput.setText(folderFeedList.getSearchQuery());
+            searchQueryInput.setVisibility(View.VISIBLE);
+        }
+
+        // triggerSync() might not actually do enough to push a UI update if background sync has been
+        // behaving itself. because the system will re-use the activity, at least one update on resume
+        // will be required, however inefficient
+        folderFeedList.hasUpdated();
+
         NBSyncService.resetReadingSession();
-
         NBSyncService.flushRecounts();
 
         updateStatusIndicators();
         folderFeedList.pushUnreadCounts();
         folderFeedList.checkOpenFolderPreferences();
         triggerSync();
-
-        if (PrefsUtils.isLightThemeSelected(this) != isLightTheme) {
-            UIUtils.restartActivity(this);
-        }
     }
 
 	@Override
 	public void changedState(StateFilter state) {
+        if ( !( (state == StateFilter.ALL) ||
+                (state == StateFilter.SOME) ||
+                (state == StateFilter.BEST) ) ) {
+            searchQueryInput.setText("");
+            searchQueryInput.setVisibility(View.GONE);
+            checkSearchQuery();
+        }
+
 		folderFeedList.changeState(state);
 	}
 	
@@ -148,8 +199,15 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
     public void updateUnreadCounts(int neutCount, int posiCount) {
         unreadCountNeutText.setText(Integer.toString(neutCount));
         unreadCountPosiText.setText(Integer.toString(posiCount));
+    }
 
-        if ((neutCount+posiCount) <= 0) {
+    /**
+     * A callback for the feed list fragment so it can tell us how many feeds (not folders)
+     * are being displayed based on mode, etc.  This lets us adjust our wrapper UI without
+     * having to expensively recalculate those totals from the DB.
+     */
+    public void updateFeedCount(int feedCount) {
+        if (feedCount < 1 ) {
             if (NBSyncService.isFeedCountSyncRunning() || (!folderFeedList.firstCursorSeenYet)) {
                 emptyViewImage.setVisibility(View.INVISIBLE);
                 emptyViewText.setVisibility(View.INVISIBLE);
@@ -157,6 +215,8 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
                 emptyViewImage.setVisibility(View.VISIBLE);
                 if (folderFeedList.currentState == StateFilter.BEST) {
                     emptyViewText.setText(R.string.empty_list_view_no_focus_stories);
+                } else if (folderFeedList.currentState == StateFilter.SAVED) {
+                    emptyViewText.setText(R.string.empty_list_view_no_saved_stories);
                 } else {
                     emptyViewText.setText(R.string.empty_list_view_no_unread_stories);
                 }
@@ -193,6 +253,7 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
     public void onRefresh() {
         NBSyncService.forceFeedsFolders();
         triggerSync();
+        folderFeedList.clearRecents();
     }
 
     @OnClick(R.id.main_menu_button) void onClickMenuButton() {
@@ -214,20 +275,41 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
             feedbackItem.setVisible(false);
         }
 
+        if ( (folderFeedList.currentState == StateFilter.ALL) ||
+             (folderFeedList.currentState == StateFilter.SOME) ||
+             (folderFeedList.currentState == StateFilter.BEST) ) {
+            menu.findItem(R.id.menu_search_feeds).setVisible(true);
+        } else {
+            menu.findItem(R.id.menu_search_feeds).setVisible(false);
+        }
+
+        ThemeValue themeValue = PrefsUtils.getSelectedTheme(this);
+        if (themeValue == ThemeValue.LIGHT) {
+            menu.findItem(R.id.menu_theme_light).setChecked(true);
+        } else if (themeValue == ThemeValue.DARK) {
+            menu.findItem(R.id.menu_theme_dark).setChecked(true);
+        } else if (themeValue == ThemeValue.BLACK) {
+            menu.findItem(R.id.menu_theme_black).setChecked(true);
+        }
+
         pm.setOnMenuItemClickListener(this);
         pm.show();
     }
 
     @Override
     public boolean onMenuItemClick(MenuItem item) {
-		if (item.getItemId() == R.id.menu_profile) {
-			Intent i = new Intent(this, Profile.class);
-			startActivity(i);
+		if (item.getItemId() == R.id.menu_refresh) {
+            onRefresh();
 			return true;
-		} else if (item.getItemId() == R.id.menu_refresh) {
-            NBSyncService.forceFeedsFolders();
-			triggerSync();
-			return true;
+        } else if (item.getItemId() == R.id.menu_search_feeds) {
+            if (searchQueryInput.getVisibility() != View.VISIBLE) {
+                searchQueryInput.setVisibility(View.VISIBLE);
+                searchQueryInput.requestFocus();
+            } else {
+                searchQueryInput.setText("");
+                searchQueryInput.setVisibility(View.GONE);
+                checkSearchQuery();
+            }
 		} else if (item.getItemId() == R.id.menu_add_feed) {
 			Intent i = new Intent(this, SearchForFeeds.class);
             startActivity(i);
@@ -239,7 +321,10 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
             Intent settingsIntent = new Intent(this, Settings.class);
             startActivity(settingsIntent);
             return true;
-        } else if (item.getItemId() == R.id.menu_feedback) {
+        } else if (item.getItemId() == R.id.menu_feedback_email) {
+            PrefsUtils.sendLogEmail(this);
+            return true;
+        } else if (item.getItemId() == R.id.menu_feedback_post) {
             try {
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setData(Uri.parse(PrefsUtils.createFeedbackLink(this)));
@@ -256,6 +341,15 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
             DialogFragment newFragment = new LoginAsDialogFragment();
             newFragment.show(getFragmentManager(), "dialog");
             return true;
+        } else if (item.getItemId() == R.id.menu_theme_light) {
+            PrefsUtils.setSelectedTheme(this, ThemeValue.LIGHT);
+            UIUtils.restartActivity(this);
+        } else if (item.getItemId() == R.id.menu_theme_dark) {
+            PrefsUtils.setSelectedTheme(this, ThemeValue.DARK);
+            UIUtils.restartActivity(this);
+        } else if (item.getItemId() == R.id.menu_theme_black) {
+            PrefsUtils.setSelectedTheme(this, ThemeValue.BLACK);
+            UIUtils.restartActivity(this);
         }
 		return false;
     }
@@ -291,11 +385,6 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
         }
     }
 
-    @Override
-    public void onMarkAllRead(FeedSet feedSet) {
-        FeedUtils.markFeedsRead(feedSet, null, null, this);
-    }
-
     // NB: this callback is for the text size slider
 	@Override
 	public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -303,6 +392,14 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
 	    PrefsUtils.setListTextSize(this, size);
         if (folderFeedList != null) folderFeedList.setTextSize(size);
 	}
+
+    private void checkSearchQuery() {
+        String q = searchQueryInput.getText().toString().trim();
+        if (q.length() < 1) {
+            q = null;
+        }
+        folderFeedList.setSearchQuery(q);
+    }
 
     // unused OnSeekBarChangeListener method
 	@Override

@@ -33,7 +33,7 @@ import raven
 import django.http
 import re
 from mongoengine import connect
-from boto.s3.connection import S3Connection
+from boto.s3.connection import S3Connection, OrdinaryCallingFormat
 from utils import jammit
 
 # ===================
@@ -158,6 +158,16 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose'
         },
+        'pyes':{
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose'
+        },
+        'vendor.apns':{
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose'
+        },
         'log_file':{
             'level': 'DEBUG',
             'class': 'logging.handlers.RotatingFileHandler',
@@ -193,6 +203,16 @@ LOGGING = {
         },
         'newsblur': {
             'handlers': ['console', 'log_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'readability': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'pyes': {
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },
@@ -250,9 +270,10 @@ SESSION_COOKIE_DOMAIN   = '.newsblur.com'
 SENTRY_DSN              = 'https://XXXNEWSBLURXXX@app.getsentry.com/99999999'
 
 if DEBUG:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    EMAIL_BACKEND = 'vendor.mailgun.MailgunBackend'
 else:
-    EMAIL_BACKEND = 'django_mailgun.MailgunBackend'
+    EMAIL_BACKEND = 'vendor.mailgun.MailgunBackend'
 
 # ==============
 # = Subdomains =
@@ -292,6 +313,7 @@ INSTALLED_APPS = (
     'apps.profile',
     'apps.recommendations',
     'apps.statistics',
+    'apps.notifications',
     'apps.static',
     'apps.mobile',
     'apps.push',
@@ -453,7 +475,12 @@ CELERYBEAT_SCHEDULE = {
     },
     'clean-spam': {
         'task': 'clean-spam',
-        'schedule': datetime.timedelta(hours=12),
+        'schedule': datetime.timedelta(hours=6),
+        'options': {'queue': 'beat_tasks'},
+    },
+    'clean-social-spam': {
+        'task': 'clean-social-spam',
+        'schedule': datetime.timedelta(hours=6),
         'options': {'queue': 'beat_tasks'},
     },
     'premium-expire': {
@@ -628,6 +655,7 @@ MONGO_DB = dict(MONGO_DB_DEFAULTS, **MONGO_DB)
 #     MONGOPRIMARYDB = MONGODB
 # MONGODB = connect(MONGO_DB.pop('name'), host=MONGO_URI, **MONGO_DB)
 MONGODB = connect(MONGO_DB.pop('name'), **MONGO_DB)
+# MONGODB = connect(host="mongodb://localhost:27017/newsblur", connect=False)
 
 MONGO_ANALYTICS_DB_DEFAULTS = {
     'name': 'nbanalytics',
@@ -647,6 +675,8 @@ BROKER_BACKEND = "redis"
 BROKER_URL = "redis://%s:6379/%s" % (REDIS['host'], CELERY_REDIS_DB_NUM)
 CELERY_RESULT_BACKEND = BROKER_URL
 SESSION_REDIS_HOST = REDIS_SESSIONS['host']
+SESSION_REDIS_RETRY_ON_TIMEOUT = True
+SESSION_REDIS_SOCKET_TIMEOUT = 10
 
 CACHES = {
     'default': {
@@ -695,10 +725,10 @@ if DEBUG:
 
 S3_CONN = None
 if BACKED_BY_AWS.get('pages_on_s3') or BACKED_BY_AWS.get('icons_on_s3'):
-    S3_CONN = S3Connection(S3_ACCESS_KEY, S3_SECRET)
-    if BACKED_BY_AWS.get('pages_on_s3'):
-        S3_PAGES_BUCKET = S3_CONN.get_bucket(S3_PAGES_BUCKET_NAME)
-    if BACKED_BY_AWS.get('icons_on_s3'):
-        S3_ICONS_BUCKET = S3_CONN.get_bucket(S3_ICONS_BUCKET_NAME)
+    S3_CONN = S3Connection(S3_ACCESS_KEY, S3_SECRET, calling_format=OrdinaryCallingFormat())
+    # if BACKED_BY_AWS.get('pages_on_s3'):
+    #     S3_PAGES_BUCKET = S3_CONN.get_bucket(S3_PAGES_BUCKET_NAME)
+    # if BACKED_BY_AWS.get('icons_on_s3'):
+    #     S3_ICONS_BUCKET = S3_CONN.get_bucket(S3_ICONS_BUCKET_NAME)
 
 django.http.request.host_validation_re = re.compile(r"^([a-z0-9.-_\-]+|\[[a-f0-9]*:[a-f0-9:]+\])(:\d+)?$")

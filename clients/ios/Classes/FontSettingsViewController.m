@@ -60,6 +60,7 @@
     [self addBundledFontWithName:@"GothamNarrow-Book" styleClass:@"GothamNarrow-Book" displayName:nil];
     [self addBuiltInFontWithName:@"Helvetica" styleClass:@"NB-helvetica" displayName:nil];
     [self addBuiltInFontWithName:@"Palatino-Roman" styleClass:@"NB-palatino" displayName:nil];
+    [self addBundledFontWithName:@"SanFrancisco" styleClass:@"NB-sanfrancisco" displayName:@"San Francisco"];
     [self addBundledFontWithName:@"WhitneySSm-Book" styleClass:@"WhitneySSm-Book" displayName:@"Whitney"];
     
     NSUserDefaults *userPreferences = [NSUserDefaults standardUserDefaults];
@@ -134,6 +135,9 @@
                    
 - (void)addBuiltInFontWithName:(NSString *)fontName styleClass:(NSString *)styleClass displayName:(NSString *)displayName {
     UIFont *font = [UIFont fontWithName:fontName size:16.0];
+    if ([fontName isEqualToString:@"SanFrancisco"]) {
+        font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightRegular];
+    }
     
     if (font) {
         if (!displayName) {
@@ -276,7 +280,7 @@
     } else if (indexPath.row == 5) {
         NSString *fontStyle = [[NSUserDefaults standardUserDefaults] stringForKey:@"fontStyle"];
         if (!fontStyle) {
-            fontStyle = @"NB-helvetica";
+            fontStyle = @"GothamNarrow-Book";
         }
         NSUInteger idx = [self.fonts indexOfObjectPassingTest:^BOOL(NSDictionary *obj, NSUInteger idx, BOOL * _Nonnull stop) {
             return [obj[@"style"] isEqualToString:fontStyle];
@@ -357,13 +361,12 @@
     cell.separatorInset = UIEdgeInsetsZero;
     cell.backgroundColor = UIColorFromRGB(0xffffff);
     
-    self.fontSizeSegment.frame = CGRectMake(8, 4, cell.frame.size.width - 8*2, kMenuOptionHeight - 4*2);
+    self.fontSizeSegment.frame = CGRectMake(8, 7, cell.frame.size.width - 8*2, kMenuOptionHeight - 7*2);
     [self.fontSizeSegment setTitle:@"XS" forSegmentAtIndex:0];
     [self.fontSizeSegment setTitle:@"S" forSegmentAtIndex:1];
     [self.fontSizeSegment setTitle:@"M" forSegmentAtIndex:2];
     [self.fontSizeSegment setTitle:@"L" forSegmentAtIndex:3];
     [self.fontSizeSegment setTitle:@"XL" forSegmentAtIndex:4];
-    [self.fontSizeSegment setTintColor:UIColorFromRGB(0x738570)];
     self.fontSizeSegment.backgroundColor = UIColorFromRGB(0xeeeeee);
     [self.fontSizeSegment setTitleTextAttributes:@{NSFontAttributeName:[UIFont fontWithName:@"Helvetica-Bold" size:11.0f]} forState:UIControlStateNormal];
     [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:0];
@@ -384,13 +387,12 @@
     cell.separatorInset = UIEdgeInsetsZero;
     cell.backgroundColor = UIColorFromRGB(0xffffff);
     
-    self.lineSpacingSegment.frame = CGRectMake(8, 4, cell.frame.size.width - 8*2, kMenuOptionHeight - 4*2);
+    self.lineSpacingSegment.frame = CGRectMake(8, 7, cell.frame.size.width - 8*2, kMenuOptionHeight - 7*2);
     [self.lineSpacingSegment setImage:[UIImage imageNamed:@"line_spacing_xs"] forSegmentAtIndex:0];
     [self.lineSpacingSegment setImage:[UIImage imageNamed:@"line_spacing_s"] forSegmentAtIndex:1];
     [self.lineSpacingSegment setImage:[UIImage imageNamed:@"line_spacing_m"] forSegmentAtIndex:2];
     [self.lineSpacingSegment setImage:[UIImage imageNamed:@"line_spacing_l"] forSegmentAtIndex:3];
     [self.lineSpacingSegment setImage:[UIImage imageNamed:@"line_spacing_xl"] forSegmentAtIndex:4];
-    [self.lineSpacingSegment setTintColor:UIColorFromRGB(0x738570)];
     self.lineSpacingSegment.backgroundColor = UIColorFromRGB(0xeeeeee);
     
     [cell addSubview:self.lineSpacingSegment];

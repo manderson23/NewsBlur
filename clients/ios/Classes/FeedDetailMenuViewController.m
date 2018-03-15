@@ -23,6 +23,7 @@
 @synthesize menuTableView;
 @synthesize orderSegmentedControl;
 @synthesize readFilterSegmentedControl;
+@synthesize infrequentSegmentedControl;
 
 - (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil
 {
@@ -75,6 +76,46 @@
     if ([appDelegate.storiesCollection.activeReadFilter isEqualToString:@"unread"]) {
         [readFilterSegmentedControl setSelectedSegmentIndex:1];
     }
+
+    NSUserDefaults *userPreferences = [NSUserDefaults standardUserDefaults];
+    
+    [self.fontSizeSegment
+     setTitleTextAttributes:@{NSFontAttributeName:
+                                  [UIFont fontWithName:@"Helvetica-Bold" size:11.0f]}
+     forState:UIControlStateNormal];
+    if([userPreferences stringForKey:@"feed_list_font_size"]){
+        NSString *fontSize = [userPreferences stringForKey:@"feed_list_font_size"];
+        if ([fontSize isEqualToString:@"xs"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:0];
+        } else if ([fontSize isEqualToString:@"small"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:1];
+        } else if ([fontSize isEqualToString:@"medium"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:2];
+        } else if ([fontSize isEqualToString:@"large"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:3];
+        } else if ([fontSize isEqualToString:@"xl"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:4];
+        }
+    }
+
+    [self.infrequentSegmentedControl
+     setTitleTextAttributes:@{NSFontAttributeName:
+                                  [UIFont fontWithName:@"Helvetica-Bold" size:11.0f]}
+     forState:UIControlStateNormal];
+    if([userPreferences stringForKey:@"infrequent_stories_per_month"]){
+        NSInteger storiesPerMonth = [userPreferences integerForKey:@"infrequent_stories_per_month"];
+        if (storiesPerMonth == 5) {
+            [self.infrequentSegmentedControl setSelectedSegmentIndex:0];
+        } else if (storiesPerMonth == 15) {
+            [self.infrequentSegmentedControl setSelectedSegmentIndex:1];
+        } else if (storiesPerMonth == 30) {
+            [self.infrequentSegmentedControl setSelectedSegmentIndex:2];
+        } else if (storiesPerMonth == 60) {
+            [self.infrequentSegmentedControl setSelectedSegmentIndex:3];
+        } else if (storiesPerMonth == 90) {
+            [self.infrequentSegmentedControl setSelectedSegmentIndex:4];
+        }
+    }
     
     NSString *theme = [ThemeManager themeManager].theme;
     if ([theme isEqualToString:@"sepia"]) {
@@ -87,14 +128,20 @@
         self.themeSegmentedControl.selectedSegmentIndex = 0;
     }
     
-    NSInteger menuCount = self.menuOptions.count + ([self isRiver] ? 2 : 3);
+    if ([self isInfrequent]) {
+        self.infrequentSegmentedControl.hidden = NO;
+    } else {
+        self.infrequentSegmentedControl.hidden = YES;
+    }
+    
+    NSInteger menuCount = self.menuOptions.count + ([self isRiver] ? 3 : 4) + ([self isInfrequent] ? 1 : 0);
     self.navigationController.preferredContentSize = CGSizeMake(260, 38 * menuCount);
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     
-    NSInteger menuCount = self.menuOptions.count + ([self isRiver] ? 2 : 3);
+    NSInteger menuCount = self.menuOptions.count + ([self isRiver] ? 3 : 4) + ([self isInfrequent] ? 1 : 0);
     self.navigationController.preferredContentSize = CGSizeMake(260, 38 * menuCount);
     self.menuTableView.scrollEnabled = self.navigationController.preferredContentSize.height > self.view.frame.size.height;
 }
@@ -107,6 +154,7 @@
 - (void)buildMenuOptions {
     BOOL everything = appDelegate.storiesCollection.isRiverView &&
                       [appDelegate.storiesCollection.activeFolder isEqualToString:@"everything"];
+    BOOL infrequent = [self isInfrequent];
     BOOL read = appDelegate.storiesCollection.isReadView;
     BOOL saved = appDelegate.storiesCollection.isSavedView;
 
@@ -116,7 +164,7 @@
     //                        appDelegate.storiesCollection.activeFolder :
     //                        [appDelegate.storiesCollection.activeFeed objectForKey:@"feed_title"];
     
-    if (!everything && !read && !saved) {
+    if (!everything && !infrequent && !read && !saved) {
         NSString *deleteText = [NSString stringWithFormat:@"Delete %@",
                                 appDelegate.storiesCollection.isRiverView ?
                                 @"this entire folder" :
@@ -128,13 +176,14 @@
         }
     }
     
-    if (!appDelegate.storiesCollection.isRiverView && !saved && !read) {
+    if (!appDelegate.storiesCollection.isRiverView && !infrequent && !saved && !read) {
         [options addObject:[@"Rename this site" uppercaseString]];
         [options addObject:[@"Mute this site" uppercaseString]];
         [options addObject:[@"Train this site" uppercaseString]];
+        [options addObject:[@"Notifications" uppercaseString]];
         [options addObject:[@"Insta-fetch stories" uppercaseString]];
     }
-    
+
     self.menuOptions = options;
 }
 
@@ -145,6 +194,11 @@
     appDelegate.storiesCollection.isReadView;
 }
 
+- (BOOL)isInfrequent {
+    return appDelegate.storiesCollection.isRiverView &&
+           [appDelegate.storiesCollection.activeFolder isEqualToString:@"infrequent"];
+}
+
 #pragma mark -
 #pragma mark - Table view data source
 
@@ -152,7 +206,7 @@
 {
     [self buildMenuOptions];
     
-    return [self.menuOptions count] + ([self isRiver] ? 2 : 3);
+    return [self.menuOptions count] + ([self isRiver] ? 3 : 4) + ([self isInfrequent] ? 1 : 0);
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -161,10 +215,30 @@
     
     if (indexPath.row == [self.menuOptions count]) {
         return [self makeOrderCell];
-    } else if (![self isRiver] && indexPath.row == [self.menuOptions count] + 1) {
-        return [self makeReadFilterCell];
-    } else if (indexPath.row == [self.menuOptions count] + 2 || ([self isRiver] && indexPath.row == [self.menuOptions count] + 1)) {
-        return [self makeThemeTableCell];
+    } else if ([self isInfrequent]) {
+        if (indexPath.row == [self.menuOptions count] + 1) {
+            return [self makeReadFilterCell];
+        } else if (indexPath.row == [self.menuOptions count] + 2) {
+            return [self makeFontSizeTableCell];
+        } else if (indexPath.row == [self.menuOptions count] + 3) {
+            return [self makeInfrequentTableCell];
+        } else if (indexPath.row == [self.menuOptions count] + 4) {
+            return [self makeThemeTableCell];
+        }
+    } else if (![self isRiver]) {
+        if (indexPath.row == [self.menuOptions count] + 1) {
+            return [self makeReadFilterCell];
+        } else if (indexPath.row == [self.menuOptions count] + 2) {
+            return [self makeFontSizeTableCell];
+        } else if (indexPath.row == [self.menuOptions count] + 3) {
+            return [self makeThemeTableCell];
+        }
+    } else if ([self isRiver]) {
+        if (indexPath.row == [self.menuOptions count] + 1) {
+            return [self makeFontSizeTableCell];
+        } else if (indexPath.row == [self.menuOptions count] + 2) {
+            return [self makeThemeTableCell];
+        }
     }
     
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellIndentifier];
@@ -188,6 +262,8 @@
     } else if (indexPath.row == 4) {
         cell.imageView.image = [UIImage imageNamed:@"menu_icn_train.png"];
     } else if (indexPath.row == 5) {
+        cell.imageView.image = [UIImage imageNamed:@"menu_icn_notifications.png"];
+    } else if (indexPath.row == 6) {
         cell.imageView.image = [UIImage imageNamed:@"menu_icn_fetch.png"];
     }
     
@@ -224,6 +300,9 @@
     } else if (indexPath.row == 4) {
         [appDelegate.feedDetailViewController openTrainSite];
     } else if (indexPath.row == 5) {
+        [appDelegate.feedDetailViewController
+         openNotificationsWithFeed:[NSString stringWithFormat:@"%@", [appDelegate.storiesCollection.activeFeed objectForKey:@"id"]]];
+    } else if (indexPath.row == 6) {
         [appDelegate.feedDetailViewController instafetchFeed];
     }
     
@@ -270,6 +349,58 @@
     self.readFilterSegmentedControl.backgroundColor = UIColorFromRGB(0xeeeeee);
     
     [cell addSubview:readFilterSegmentedControl];
+    
+    return cell;
+}
+
+- (UITableViewCell *)makeFontSizeTableCell {
+    UITableViewCell *cell = [[UITableViewCell alloc] init];
+    cell.frame = CGRectMake(0, 0, 240, kMenuOptionHeight);
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.separatorInset = UIEdgeInsetsZero;
+    cell.backgroundColor = UIColorFromRGB(0xffffff);
+    
+    self.fontSizeSegment.frame = CGRectMake(8, 7, cell.frame.size.width - 8*2, kMenuOptionHeight - 7*2);
+    [self.fontSizeSegment setTitle:@"XS" forSegmentAtIndex:0];
+    [self.fontSizeSegment setTitle:@"S" forSegmentAtIndex:1];
+    [self.fontSizeSegment setTitle:@"M" forSegmentAtIndex:2];
+    [self.fontSizeSegment setTitle:@"L" forSegmentAtIndex:3];
+    [self.fontSizeSegment setTitle:@"XL" forSegmentAtIndex:4];
+    self.fontSizeSegment.backgroundColor = UIColorFromRGB(0xeeeeee);
+    [self.fontSizeSegment setTitleTextAttributes:@{NSFontAttributeName:[UIFont fontWithName:@"Helvetica-Bold" size:11.0f]} forState:UIControlStateNormal];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:0];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:1];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:2];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:3];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:4];
+    
+    [cell addSubview:self.fontSizeSegment];
+    
+    return cell;
+}
+
+- (UITableViewCell *)makeInfrequentTableCell {
+    UITableViewCell *cell = [[UITableViewCell alloc] init];
+    cell.frame = CGRectMake(0, 0, 240, kMenuOptionHeight);
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.separatorInset = UIEdgeInsetsZero;
+    cell.backgroundColor = UIColorFromRGB(0xffffff);
+    
+    self.infrequentSegmentedControl.frame = CGRectMake(8, 7, cell.frame.size.width - 8*2, kMenuOptionHeight - 7*2);
+    [self.infrequentSegmentedControl setTitle:@"5" forSegmentAtIndex:0];
+    [self.infrequentSegmentedControl setTitle:@"15" forSegmentAtIndex:1];
+    [self.infrequentSegmentedControl setTitle:@"30" forSegmentAtIndex:2];
+    [self.infrequentSegmentedControl setTitle:@"60" forSegmentAtIndex:3];
+    [self.infrequentSegmentedControl setTitle:@"90" forSegmentAtIndex:4];
+    self.infrequentSegmentedControl.backgroundColor = UIColorFromRGB(0xeeeeee);
+    [self.infrequentSegmentedControl setTitleTextAttributes:@{NSFontAttributeName:[UIFont fontWithName:@"Helvetica-Bold" size:11.0f]} forState:UIControlStateNormal];
+    [self.infrequentSegmentedControl setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:0];
+    [self.infrequentSegmentedControl setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:1];
+    [self.infrequentSegmentedControl setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:2];
+    [self.infrequentSegmentedControl setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:3];
+    [self.infrequentSegmentedControl setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:4];
+    
+    [cell addSubview:self.infrequentSegmentedControl];
     
     return cell;
 }
@@ -340,6 +471,43 @@
     
     [appDelegate.feedDetailViewController reloadStories];
     
+}
+
+- (IBAction)changeFontSize:(id)sender {
+    NSUserDefaults *userPreferences = [NSUserDefaults standardUserDefaults];
+    if ([sender selectedSegmentIndex] == 0) {
+        [userPreferences setObject:@"xs" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 1) {
+        [userPreferences setObject:@"small" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 2) {
+        [userPreferences setObject:@"medium" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 3) {
+        [userPreferences setObject:@"large" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 4) {
+        [userPreferences setObject:@"xl" forKey:@"feed_list_font_size"];
+    }
+    [userPreferences synchronize];
+    
+    [appDelegate resizeFontSize];
+}
+
+- (IBAction)changeInfrequent:(id)sender {
+    NSUserDefaults *userPreferences = [NSUserDefaults standardUserDefaults];
+    if ([sender selectedSegmentIndex] == 0) {
+        [userPreferences setObject:[NSNumber numberWithInteger:5] forKey:@"infrequent_stories_per_month"];
+    } else if ([sender selectedSegmentIndex] == 1) {
+        [userPreferences setObject:[NSNumber numberWithInteger:15] forKey:@"infrequent_stories_per_month"];
+    } else if ([sender selectedSegmentIndex] == 2) {
+        [userPreferences setObject:[NSNumber numberWithInteger:30] forKey:@"infrequent_stories_per_month"];
+    } else if ([sender selectedSegmentIndex] == 3) {
+        [userPreferences setObject:[NSNumber numberWithInteger:60] forKey:@"infrequent_stories_per_month"];
+    } else if ([sender selectedSegmentIndex] == 4) {
+        [userPreferences setObject:[NSNumber numberWithInteger:90] forKey:@"infrequent_stories_per_month"];
+    }
+    [userPreferences synchronize];
+    
+    [appDelegate.feedDetailViewController reloadStories];
+    [appDelegate.feedDetailViewController flashInfrequentStories];
 }
 
 - (IBAction)changeTheme:(id)sender {

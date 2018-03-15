@@ -41,7 +41,14 @@ NEWSBLUR.Views.FeedTitleView = Backbone.View.extend({
     changed: function(model, options) {
         options = options || {};
         var changes = _.keys(this.model.changedAttributes());
+        var ignore_attributes = ['notification_types', 'notification_filter'];
         
+        var only_ignored = !_.any(changes, function(key) { 
+            return !_.contains(ignore_attributes, key);
+        });
+        if (only_ignored) {
+            return;
+        }
         var counts_changed = _.any(changes, function(key) { 
             return _.contains(['ps', 'nt', 'ng'], key);
         });
@@ -89,6 +96,10 @@ NEWSBLUR.Views.FeedTitleView = Backbone.View.extend({
                       <%= NEWSBLUR.assets.view_setting(feed.id, "read_filter") %>\
                       &middot;\
                       <%= NEWSBLUR.assets.view_setting(feed.id, "order") %>\
+                      <% if (has_notifications && has_notifications.length) { %>\
+                          &middot;\
+                          <div class="NB-feedbar-notifications-icon"></div>\
+                      <% } %>\
                   </span>\
               </div>\
               <div class="NB-feedbar-mark-feed-read-container">\
@@ -138,7 +149,8 @@ NEWSBLUR.Views.FeedTitleView = Backbone.View.extend({
           highlighted         : this.options.feed_chooser &&
                                 this.model.highlighted_in_folder(this.options.folder_title),
           organizer           : this.options.organizer,
-          pluralize           : Inflector.pluralize
+          pluralize           : Inflector.pluralize,
+          has_notifications   : this.model.get('notification_types') || []
         }));
         
         if (this.options.type == 'story') {
@@ -310,6 +322,8 @@ NEWSBLUR.Views.FeedTitleView = Backbone.View.extend({
 
         if (this.model.get('has_exception') && this.model.get('exception_type') == 'feed') {
             NEWSBLUR.reader.open_feed_exception_modal(this.model.id);
+        } else if (this.model.is_search()) {
+            NEWSBLUR.reader.open_saved_search({search_model: this.model, $feed: this.$el});
         } else if (this.model.is_social()) {
             NEWSBLUR.reader.open_social_stories(this.model.id, {force: true, $feed: this.$el});
         } else if (this.model.is_starred()) {
@@ -446,6 +460,7 @@ NEWSBLUR.Views.FeedTitleView = Backbone.View.extend({
         
         var feed_type = this.model.is_social() ? 'socialfeed' : 
                         this.model.is_starred() ? 'starred' : 
+                        this.model.is_search() ? 'search' : 
                         'feed';
         e.preventDefault();
         e.stopPropagation();

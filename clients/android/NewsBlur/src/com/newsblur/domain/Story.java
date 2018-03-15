@@ -1,6 +1,8 @@
 package com.newsblur.domain;
 
 import java.io.Serializable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import android.content.ContentValues;
 import android.database.Cursor;
@@ -38,9 +40,6 @@ public class Story implements Serializable {
 	@SerializedName("story_tags")
 	public String[] tags;
 
-    @SerializedName("user_tags")
-    public String[] userTags = new String[]{};
-
 	@SerializedName("social_user_id")
 	public String socialUserId;
 
@@ -57,7 +56,7 @@ public class Story implements Serializable {
     @SerializedName("story_content")
     public String content;
 
-    // this isn't actually a serialized feed, but created client-size in StoryTypeAdapter
+    // this isn't actually a serialized field, but created client-size in StoryTypeAdapter
     public String shortContent;
 
 	@SerializedName("story_authors")
@@ -91,7 +90,16 @@ public class Story implements Serializable {
 
     // non-API and only set once when story is pushed to DB so it can be selected upon
     public String searchHit = "";
- 
+
+    // non-API, though it probably could/should be. populated on first story ingest if thumbnails are turned on
+    public String thumbnailUrl;
+
+    // non-API, but tracked locally and fudged (see SyncService) to implement ordering of gobal shared stories
+    public long sharedTimestamp = 0L;
+
+    // non-API, but indicates that the story came from the infrequent-feeds river
+    public boolean infrequent;
+
 	public ContentValues getValues() {
 		final ContentValues values = new ContentValues();
 		values.put(DatabaseConstants.STORY_ID, id);
@@ -111,7 +119,6 @@ public class Story implements Serializable {
 		values.put(DatabaseConstants.STORY_INTELLIGENCE_TITLE, intelligence.intelligenceTitle);
         values.put(DatabaseConstants.STORY_INTELLIGENCE_TOTAL, intelligence.calcTotalIntel());
 		values.put(DatabaseConstants.STORY_TAGS, TextUtils.join(",", tags));
-		values.put(DatabaseConstants.STORY_USER_TAGS, TextUtils.join(",", userTags));
 		values.put(DatabaseConstants.STORY_READ, read);
 		values.put(DatabaseConstants.STORY_STARRED, starred);
 		values.put(DatabaseConstants.STORY_STARRED_DATE, starredTimestamp);
@@ -119,7 +126,10 @@ public class Story implements Serializable {
         values.put(DatabaseConstants.STORY_HASH, storyHash);
         values.put(DatabaseConstants.STORY_IMAGE_URLS, TextUtils.join(",", imageUrls));
         values.put(DatabaseConstants.STORY_LAST_READ_DATE, lastReadTimestamp);
+        values.put(DatabaseConstants.STORY_SHARED_DATE, sharedTimestamp);
 		values.put(DatabaseConstants.STORY_SEARCH_HIT, searchHit);
+        values.put(DatabaseConstants.STORY_THUMBNAIL_URL, thumbnailUrl);
+        values.put(DatabaseConstants.STORY_INFREQUENT, infrequent);
 		return values;
 	}
 
@@ -145,11 +155,12 @@ public class Story implements Serializable {
 		story.starred = cursor.getInt(cursor.getColumnIndex(DatabaseConstants.STORY_STARRED)) > 0;
 		story.starredTimestamp = cursor.getLong(cursor.getColumnIndex(DatabaseConstants.STORY_STARRED_DATE));
 		story.tags = TextUtils.split(cursor.getString(cursor.getColumnIndex(DatabaseConstants.STORY_TAGS)), ",");
-		story.userTags = TextUtils.split(cursor.getString(cursor.getColumnIndex(DatabaseConstants.STORY_USER_TAGS)), ",");
 		story.feedId = cursor.getString(cursor.getColumnIndex(DatabaseConstants.STORY_FEED_ID));
 		story.id = cursor.getString(cursor.getColumnIndex(DatabaseConstants.STORY_ID));
         story.storyHash = cursor.getString(cursor.getColumnIndex(DatabaseConstants.STORY_HASH));
         story.lastReadTimestamp = cursor.getLong(cursor.getColumnIndex(DatabaseConstants.STORY_LAST_READ_DATE));
+        story.sharedTimestamp = cursor.getLong(cursor.getColumnIndex(DatabaseConstants.STORY_SHARED_DATE));
+		story.thumbnailUrl = cursor.getString(cursor.getColumnIndex(DatabaseConstants.STORY_THUMBNAIL_URL));
 		return story;
 	}
 
@@ -221,10 +232,49 @@ public class Story implements Serializable {
      */
     @Override
     public int hashCode() {
+        if (storyHash != null) return storyHash.hashCode();
         int result = 17;
         if (this.id == null) { result = 37*result; } else { result = 37*result + this.id.hashCode();}
         if (this.feedId == null) { result = 37*result; } else { result = 37*result + this.feedId.hashCode();}
         return result;
+    }
+
+    private static final Pattern ytSniff1 = Pattern.compile("youtube\\.com\\/embed\\/([A-Za-z0-9_-]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ytSniff2 = Pattern.compile("youtube\\.com\\/v\\/([A-Za-z0-9_-]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ytSniff3 = Pattern.compile("ytimg\\.com\\/vi\\/([A-Za-z0-9_-]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ytSniff4 = Pattern.compile("youtube\\.com\\/watch\\?v=([A-Za-z0-9_-]+)", Pattern.CASE_INSENSITIVE);
+    private static final String YT_THUMB_PRE = "http://img.youtube.com/vi/";
+    private static final String YT_THUMB_POST = "/0.jpg";
+
+    public static String guessStoryThumbnailURL(Story story) {
+        String content = story.content;
+        
+        String ytUrl = null;
+        if (ytUrl == null) {
+            Matcher m = ytSniff1.matcher(content);
+            if (m.find()) ytUrl = m.group(1);
+        }
+        if (ytUrl == null) {
+            Matcher m = ytSniff2.matcher(content);
+            if (m.find()) ytUrl = m.group(1);
+        }
+        if (ytUrl == null) {
+            Matcher m = ytSniff3.matcher(content);
+            if (m.find()) ytUrl = m.group(1);
+        }
+        if (ytUrl == null) {
+            Matcher m = ytSniff4.matcher(content);
+            if (m.find()) ytUrl = m.group(1);
+        }
+        if (ytUrl != null) {
+            return YT_THUMB_PRE + ytUrl + YT_THUMB_POST;
+        }
+
+        if ((story.imageUrls != null) && (story.imageUrls.length > 0)) {
+            return story.imageUrls[0];
+        }
+
+        return null;
     }
 
 }

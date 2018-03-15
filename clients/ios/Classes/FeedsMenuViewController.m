@@ -20,7 +20,7 @@
 @synthesize appDelegate;
 @synthesize menuOptions;
 @synthesize menuTableView;
-@synthesize loginAsAlert;
+
 
 - (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil
 {
@@ -36,12 +36,18 @@
     [super viewDidLoad];
     // Do any additional setup after loading the view from its nib.
     
+    [self rebuildOptions];
+}
+
+- (void)rebuildOptions {
     if ([appDelegate.activeUsername isEqualToString:@"samuel"]) {
         self.menuOptions = [[NSArray alloc]
                             initWithObjects:[@"Preferences" uppercaseString],
                                             [@"Mute Sites" uppercaseString],
                                             [@"Organize Sites" uppercaseString],
+                                            [@"Notifications" uppercaseString],
                                             [@"Find Friends" uppercaseString],
+                                            [appDelegate.isPremium ? @"Premium Account": @"Upgrade to Premium" uppercaseString],
                                             [@"Logout" uppercaseString],
                                             [@"Login as..." uppercaseString],
                                             nil];
@@ -50,13 +56,14 @@
                             initWithObjects:[@"Preferences" uppercaseString],
                                             [@"Mute Sites" uppercaseString],
                                             [@"Organize Sites" uppercaseString],
+                                            [@"Notifications" uppercaseString],
                                             [@"Find Friends" uppercaseString],
+                                            [appDelegate.isPremium ? @"Premium Account": @"Upgrade to Premium" uppercaseString],
                                             [@"Logout" uppercaseString], nil];
     }
     
     self.menuTableView.backgroundColor = UIColorFromRGB(0xECEEEA);
     self.menuTableView.separatorColor = UIColorFromRGB(0x909090);
-    
     
     [self.menuTableView reloadData];
 }
@@ -74,6 +81,28 @@
     [super viewWillAppear:animated];
     
     [self.menuTableView reloadData];
+    
+    NSUserDefaults *userPreferences = [NSUserDefaults standardUserDefaults];
+    
+    [self.fontSizeSegment
+     setTitleTextAttributes:@{NSFontAttributeName:
+                                  [UIFont fontWithName:@"Helvetica-Bold" size:11.0f]}
+     forState:UIControlStateNormal];
+    
+    if([userPreferences stringForKey:@"feed_list_font_size"]){
+        NSString *fontSize = [userPreferences stringForKey:@"feed_list_font_size"];
+        if ([fontSize isEqualToString:@"xs"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:0];
+        } else if ([fontSize isEqualToString:@"small"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:1];
+        } else if ([fontSize isEqualToString:@"medium"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:2];
+        } else if ([fontSize isEqualToString:@"large"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:3];
+        } else if ([fontSize isEqualToString:@"xl"]) {
+            [self.fontSizeSegment setSelectedSegmentIndex:4];
+        }
+    }
     
     NSString *theme = [ThemeManager themeManager].theme;
     if ([theme isEqualToString:@"sepia"]) {
@@ -101,7 +130,7 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section 
 {
-    return [self.menuOptions count] + 1;
+    return [self.menuOptions count] + 3;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -109,6 +138,10 @@
     static NSString *CellIndentifier = @"Cell";
     
     if (indexPath.row == [self.menuOptions count]) {
+        return [self makeFontSizeTableCell];
+    }
+    
+    if (indexPath.row == [self.menuOptions count] + 1) {
         return [self makeThemeTableCell];
     }
     
@@ -136,16 +169,24 @@
         case 2:
             image = [UIImage imageNamed:@"menu_icn_organize.png"];
             break;
-            
+        
         case 3:
+            image = [UIImage imageNamed:@"menu_icn_notifications.png"];
+            break;
+        
+        case 4:
             image = [UIImage imageNamed:@"menu_icn_followers.png"];
             break;
             
-        case 4:
+        case 5:
+            image = [UIImage imageNamed:@"g_icn_greensun.png"];
+            break;
+        
+        case 6:
             image = [UIImage imageNamed:@"menu_icn_fetch_subscribers.png"];
             break;
             
-        case 5:
+        case 7:
             image = [UIImage imageNamed:@"barbutton_sendto.png"];
             break;
             
@@ -159,11 +200,17 @@
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return 38;
+    return kMenuOptionHeight;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath 
 {
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        [self.appDelegate hidePopover];
+    } else {
+        [self.appDelegate hidePopoverAnimated:YES];
+    }
+
     switch (indexPath.row) {
         case 0:
             [appDelegate showPreferences];
@@ -178,14 +225,22 @@
             break;
             
         case 3:
+            [appDelegate openNotificationsWithFeed:nil];
+            break;
+        
+        case 4:
             [appDelegate showFindFriends];
             break;
             
-        case 4:
+        case 5:
+            [appDelegate showPremiumDialog];
+            break;
+            
+        case 6:
             [appDelegate confirmLogout];
             break;
             
-        case 5:
+        case 7:
             [self showLoginAsDialog];
             break;
             
@@ -193,11 +248,6 @@
             break;
     }
     
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
-        [self.appDelegate hidePopover];
-    } else {
-        [self.appDelegate hidePopoverAnimated:YES];
-    }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
 }
@@ -206,46 +256,73 @@
 #pragma mark Menu Options
 
 - (void)showLoginAsDialog {
-    loginAsAlert = [[UIAlertView alloc] initWithTitle:@"Login as..." message:nil delegate:self cancelButtonTitle:@"Cancel" otherButtonTitles:@"Login", nil];
-    loginAsAlert.alertViewStyle = UIAlertViewStylePlainTextInput;
-    UITextField * alertTextField = [loginAsAlert textFieldAtIndex:0];
-    alertTextField.keyboardType = UIKeyboardTypeAlphabet;
-    alertTextField.placeholder = @"Username";
-    [loginAsAlert show];
-}
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Login as..." message:nil preferredStyle:UIAlertControllerStyleAlert];
+    [alertController addTextFieldWithConfigurationHandler:nil];
+    [alertController addAction:[UIAlertAction actionWithTitle: @"Login" style:UIAlertActionStyleDefault handler:^(UIAlertAction * action) {
+        [alertController dismissViewControllerAnimated:YES completion:nil];
+        NSString *username = alertController.textFields[0].text;
+        NSString *urlString = [NSString stringWithFormat:@"%@/reader/login_as?user=%@",
+                          self.appDelegate.url, username];
 
-- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
-    UITextField * alertTextField = [loginAsAlert textFieldAtIndex:0];
-    if ([alertTextField.text length] <= 0 || buttonIndex == 0){
-        return;
-    }
-    if (buttonIndex == 1) {
-        NSString *urlS = [NSString stringWithFormat:@"%@/reader/login_as?user=%@",
-                          self.appDelegate.url, alertTextField.text];
-        NSURL *url = [NSURL URLWithString:urlS];
-        
-        __block ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:url];
-        [request setValidatesSecureCertificate:NO];
-        [request setDelegate:self];
-        [request setResponseEncoding:NSUTF8StringEncoding];
-        [request setDefaultResponseEncoding:NSUTF8StringEncoding];
-        [request setFailedBlock:^(void) {
-            [MBProgressHUD hideHUDForView:self.view animated:YES];
-        }];
-        [request setCompletionBlock:^(void) {
-            NSLog(@"Login as %@ successful", alertTextField.text);
+        [appDelegate.networkManager GET:urlString parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+            NSLog(@"Login as %@ successful", username);
             [MBProgressHUD hideHUDForView:self.view animated:YES];
             [appDelegate reloadFeedsView:YES];
+        } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+            [self informError:error];
         }];
-        [request setTimeOutSeconds:30];
-        [request startAsynchronous];
-        
-        [ASIHTTPRequest setSessionCookies:nil];
         
         [MBProgressHUD hideHUDForView:self.view animated:YES];
         MBProgressHUD *HUD = [MBProgressHUD showHUDAddedTo:appDelegate.feedsViewController.view animated:YES];
-        HUD.labelText = [NSString stringWithFormat:@"Login: %@", alertTextField.text];
+        HUD.labelText = [NSString stringWithFormat:@"Login: %@", username];
+    }]];
+    [alertController addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                                        style:UIAlertActionStyleCancel handler:nil]];
+    [appDelegate.feedsViewController presentViewController:alertController animated:YES completion:nil];
+}
+
+- (UITableViewCell *)makeFontSizeTableCell {
+    UITableViewCell *cell = [[UITableViewCell alloc] init];
+    cell.frame = CGRectMake(0, 0, 240, kMenuOptionHeight);
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.separatorInset = UIEdgeInsetsZero;
+    cell.backgroundColor = UIColorFromRGB(0xffffff);
+    
+    self.fontSizeSegment.frame = CGRectMake(8, 7, cell.frame.size.width - 8*2, kMenuOptionHeight - 7*2);
+    [self.fontSizeSegment setTitle:@"XS" forSegmentAtIndex:0];
+    [self.fontSizeSegment setTitle:@"S" forSegmentAtIndex:1];
+    [self.fontSizeSegment setTitle:@"M" forSegmentAtIndex:2];
+    [self.fontSizeSegment setTitle:@"L" forSegmentAtIndex:3];
+    [self.fontSizeSegment setTitle:@"XL" forSegmentAtIndex:4];
+    self.fontSizeSegment.backgroundColor = UIColorFromRGB(0xeeeeee);
+    [self.fontSizeSegment setTitleTextAttributes:@{NSFontAttributeName:[UIFont fontWithName:@"Helvetica-Bold" size:11.0f]} forState:UIControlStateNormal];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:0];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:1];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:2];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:3];
+    [self.fontSizeSegment setContentOffset:CGSizeMake(0, 1) forSegmentAtIndex:4];
+    
+    [cell addSubview:self.fontSizeSegment];
+    
+    return cell;
+}
+
+- (IBAction)changeFontSize:(id)sender {
+    NSUserDefaults *userPreferences = [NSUserDefaults standardUserDefaults];
+    if ([sender selectedSegmentIndex] == 0) {
+        [userPreferences setObject:@"xs" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 1) {
+        [userPreferences setObject:@"small" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 2) {
+        [userPreferences setObject:@"medium" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 3) {
+        [userPreferences setObject:@"large" forKey:@"feed_list_font_size"];
+    } else if ([sender selectedSegmentIndex] == 4) {
+        [userPreferences setObject:@"xl" forKey:@"feed_list_font_size"];
     }
+    [userPreferences synchronize];
+    
+    [appDelegate resizeFontSize];
 }
 
 #pragma mark - Theme Options

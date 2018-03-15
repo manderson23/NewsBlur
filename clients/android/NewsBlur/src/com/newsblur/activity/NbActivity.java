@@ -10,6 +10,7 @@ import com.newsblur.service.NBSyncService;
 import com.newsblur.util.AppConstants;
 import com.newsblur.util.FeedUtils;
 import com.newsblur.util.PrefsUtils;
+import com.newsblur.util.PrefConstants.ThemeValue;
 import com.newsblur.util.UIUtils;
 
 import java.util.ArrayList;
@@ -24,12 +25,15 @@ public class NbActivity extends Activity {
     public static final int UPDATE_METADATA = (1<<1);
     public static final int UPDATE_STORY    = (1<<2);
     public static final int UPDATE_SOCIAL   = (1<<3);
+    public static final int UPDATE_INTEL    = (1<<4);
     public static final int UPDATE_STATUS   = (1<<5);
     public static final int UPDATE_TEXT     = (1<<6);
     public static final int UPDATE_REBUILD  = (1<<7);
 
 	private final static String UNIQUE_LOGIN_KEY = "uniqueLoginKey";
 	private String uniqueLoginKey;
+
+    private ThemeValue lastTheme = null;
 
     /**
      * Keep track of all activie activities so they can be notified when the sync service
@@ -40,9 +44,13 @@ public class NbActivity extends Activity {
 	
 	@Override
 	protected void onCreate(Bundle bundle) {
+        com.newsblur.util.Log.offerContext(this);
         if (AppConstants.VERBOSE_LOG) Log.d(this.getClass().getName(), "onCreate");
 
+        // this is not redundant to the applyThemePreference() call in onResume. the theme needs to be set
+        // before onCreate() in order to work
         PrefsUtils.applyThemePreference(this);
+        lastTheme = PrefsUtils.getSelectedTheme(this);
 
 		super.onCreate(bundle);
 
@@ -59,9 +67,16 @@ public class NbActivity extends Activity {
 
 	@Override
 	protected void onResume() {
-        if (AppConstants.VERBOSE_LOG) Log.d(this.getClass().getName(), "onResume");
+        com.newsblur.util.Log.d(this.getClass().getName(), "onResume" + UIUtils.getMemoryUsageDebug(this));
 		super.onResume();
 		finishIfNotLoggedIn();
+
+        // is is possible that another activity changed the theme while we were on the backstack
+        if (lastTheme != PrefsUtils.getSelectedTheme(this)) {
+            lastTheme = PrefsUtils.getSelectedTheme(this);
+            PrefsUtils.applyThemePreference(this);
+            UIUtils.restartActivity(this);
+        }
 
         synchronized (AllActivities) {
             AllActivities.add(this);
@@ -81,7 +96,7 @@ public class NbActivity extends Activity {
 	protected void finishIfNotLoggedIn() {
 		String currentLoginKey = PrefsUtils.getUniqueLoginKey(this);
 		if(currentLoginKey == null || !currentLoginKey.equals(uniqueLoginKey)) {
-			Log.d( this.getClass().getName(), "This activity was for a different login. finishing it.");
+			com.newsblur.util.Log.d( this.getClass().getName(), "This activity was for a different login. finishing it.");
 			finish();
 		}
 	}

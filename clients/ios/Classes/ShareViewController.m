@@ -14,7 +14,6 @@
 #import <QuartzCore/QuartzCore.h>
 #import "Utilities.h"
 #import "DataUtilities.h"
-#import "ASIHTTPRequest.h"
 #import "StoriesCollection.h"
 #import "NSString+HTML.h"
 
@@ -22,7 +21,6 @@
 
 @synthesize facebookButton;
 @synthesize twitterButton;
-@synthesize appdotnetButton;
 @synthesize submitButton;
 @synthesize commentField;
 @synthesize appDelegate;
@@ -32,13 +30,12 @@
 @synthesize currentType;
 @synthesize storyTitle;
 
+- (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil {
+    
+    if ((self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil])) {
 
-- (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil
-{
-    self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
-    if (self) {
-        // Custom initialization
     }
+
     return self;
 }
 
@@ -53,19 +50,18 @@
     
     UIBarButtonItem *cancel = [[UIBarButtonItem alloc]
                                initWithTitle:@"Cancel"
-                               style:UIBarButtonSystemItemCancel
+                               style:UIBarButtonItemStylePlain
                                target:self
                                action:@selector(doCancelButton:)];
     self.navigationItem.leftBarButtonItem = cancel;
     
     UIBarButtonItem *submit = [[UIBarButtonItem alloc]
                                initWithTitle:@"Post"
-                               style:UIBarButtonSystemItemDone
+                               style:UIBarButtonItemStyleDone
                                target:self
                                action:@selector(doShareThisStory:)];
     self.submitButton = submit;
     self.navigationItem.rightBarButtonItem = submit;
-    
     
     // Do any additional setup after loading the view from its nib.
     commentField.layer.borderWidth = 1.0f;
@@ -76,8 +72,6 @@
     twitterButton.layer.cornerRadius = 1.0f;
     facebookButton.layer.borderWidth = 1.0f;
     facebookButton.layer.cornerRadius = 1.0f;
-    appdotnetButton.layer.borderWidth = 1.0f;
-    appdotnetButton.layer.cornerRadius = 1.0f;
     
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWasShown:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillBeHidden:) name:UIKeyboardWillHideNotification object:nil];
@@ -99,12 +93,28 @@
     // e.g. self.myOutlet = nil;
 }
 
+- (bool)isHardwareKeyboardUsed:(NSNotification*)keyboardNotification {
+    NSDictionary* info = [keyboardNotification userInfo];
+    CGRect keyboardEndFrame;
+    [[info valueForKey:UIKeyboardFrameEndUserInfoKey] getValue:&keyboardEndFrame];
+    float height = [[UIScreen mainScreen] bounds].size.height - keyboardEndFrame.origin.y;
+    float gThresholdForHardwareKeyboardToolbar = 160.f;
+    return height < gThresholdForHardwareKeyboardToolbar;
+}
 
 - (void)keyboardWasShown:(NSNotification*)aNotification
 {
     NSDictionary* info = [aNotification userInfo];
-    CGSize kbSize = [[info objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue].size;
-        
+    
+    // Get the size of the keyboard.
+    NSValue* keyboardFrameValue     = [info objectForKey:UIKeyboardFrameEndUserInfoKey];
+    CGRect keyboardRectWrtScreen    = [keyboardFrameValue CGRectValue];
+    
+    CGFloat keyboardWidth = keyboardRectWrtScreen.size.width;
+    CGFloat keyboardHeight = [[[self view] window] frame].size.height - keyboardRectWrtScreen.origin.y;
+    NSLog(@"Keyboard height: %f %d", keyboardHeight, [self isHardwareKeyboardUsed:aNotification]);
+    CGSize kbSize = CGSizeMake(keyboardWidth, keyboardHeight);
+    
     [UIView animateWithDuration:0.2f animations:^{
         [self adjustCommentField:kbSize];
     }];
@@ -114,8 +124,16 @@
 - (void)keyboardWillBeHidden:(NSNotification*)aNotification
 {
     NSDictionary* info = [aNotification userInfo];
-    CGSize kbSize = [[info objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue].size;
     
+    // Get the size of the keyboard.
+    NSValue* keyboardFrameValue     = [info objectForKey:UIKeyboardFrameEndUserInfoKey];
+    CGRect keyboardRectWrtScreen    = [keyboardFrameValue CGRectValue];
+    
+    CGFloat keyboardWidth = keyboardRectWrtScreen.size.width;
+    CGFloat keyboardHeight = [[[self view] window] frame].size.height - keyboardRectWrtScreen.origin.y;
+    NSLog(@"Keyboard height on hide: %f %d", keyboardHeight, [self isHardwareKeyboardUsed:aNotification]);
+    CGSize kbSize = CGSizeMake(keyboardWidth, keyboardHeight);
+
     [UIView animateWithDuration:0.2f animations:^{
         [self adjustCommentField:kbSize];
     }];
@@ -152,10 +170,13 @@
                                [appDelegate.activeStory objectForKey:@"story_feed_id"]];
         UIImage *titleImage  = [appDelegate getFavicon:feedIdStr];
         UIImageView *titleImageView = [[UIImageView alloc] initWithImage:titleImage];
+        UIImageView *titleImageViewWrapper = [[UIImageView alloc] init];
         titleImageView.frame = CGRectMake(0.0, 2.0, 16.0, 16.0);
         titleImageView.hidden = YES;
         titleImageView.contentMode = UIViewContentModeScaleAspectFit;
-        self.navigationItem.titleView = titleImageView;
+        [titleImageViewWrapper addSubview:titleImageView];
+        [titleImageViewWrapper setFrame:titleImageView.frame];
+        self.navigationItem.titleView = titleImageViewWrapper;
         titleImageView.hidden = NO;
     }
 }
@@ -177,15 +198,6 @@
     } else {
         facebookButton.selected = NO;
         facebookButton.layer.borderColor = [UIColorFromRGB(0xD9DBD6) CGColor];
-    }
-    
-    if (appdotnetButton.selected &&
-        [[[appDelegate.dictSocialServices objectForKey:@"appdotnet"]
-          objectForKey:@"appdotnet_uid"] class] == [NSNull class]) {
-        [self doToggleButton:appdotnetButton];
-    } else {
-        appdotnetButton.selected = NO;
-        appdotnetButton.layer.borderColor = [UIColorFromRGB(0xD9DBD6) CGColor];
     }
 }
 
@@ -213,9 +225,8 @@
                                          v.height - k - (showingShareButtons ? bH + bP*2 : 6) - 12 - stHeight);
     CGPoint o = self.commentField.frame.origin;
     CGSize c = self.commentField.frame.size;
-    self.twitterButton.frame   = CGRectMake(v.width - 20 - bW*3 - bP*2, o.y + c.height + bP, bW, bH);
-    self.facebookButton.frame  = CGRectMake(v.width - 20 - bW*2 - bP*1, o.y + c.height + bP, bW, bH);
-    self.appdotnetButton.frame = CGRectMake(v.width - 20 - bW*1 - bP*0, o.y + c.height + bP, bW, bH);
+    self.twitterButton.frame   = CGRectMake(v.width - 20 - bW*2 - bP*2, o.y + c.height + bP, bW, bH);
+    self.facebookButton.frame  = CGRectMake(v.width - 20 - bW*1 - bP*1, o.y + c.height + bP, bW, bH);
     
     [self onTextChange:nil];
 }
@@ -243,13 +254,6 @@
         } else {
             button.layer.borderColor = [UIColorFromRGB(0xD9DBD6) CGColor];
         }
-    } else if (button.tag == 3) { // App.net
-        if (selected) {
-            [self checkService:@"appdotnet"];
-            button.layer.borderColor = [UIColorFromRGB(0xD16857) CGColor];
-        } else {
-            button.layer.borderColor = [UIColorFromRGB(0xD9DBD6) CGColor];
-        }
     }
 }
 
@@ -261,10 +265,6 @@
     } else if ([service isEqualToString:@"facebook"] &&
               [[[appDelegate.dictSocialServices objectForKey:@"facebook"]
                 objectForKey:@"facebook_uid"] class] == [NSNull class]) {
-        [appDelegate showConnectToService:service];
-    } else if ([service isEqualToString:@"appdotnet"] &&
-              [[[appDelegate.dictSocialServices objectForKey:@"appdotnet"]
-                objectForKey:@"appdotnet_uid"] class] == [NSNull class]) {
         [appDelegate showConnectToService:service];
     }
 }
@@ -283,7 +283,6 @@
         [submitButton setTitle:@"Save your reply"];
         facebookButton.hidden = YES;
         twitterButton.hidden = YES;
-        appdotnetButton.hidden = YES;
         [submitButton setAction:(@selector(doReplyToComment:))];
         self.activeReplyId = replyId;
         
@@ -305,7 +304,6 @@
         [submitButton setTitle:[NSString stringWithFormat:@"Reply to %@", username]];
         facebookButton.hidden = YES;
         twitterButton.hidden = YES;
-        appdotnetButton.hidden = YES;
         [submitButton setAction:(@selector(doReplyToComment:))];
         
         // Don't bother to reset comment field for replies while on the same story.
@@ -319,7 +317,6 @@
     } else if ([type isEqualToString: @"edit-share"]) {
         facebookButton.hidden = NO;
         twitterButton.hidden = NO;
-        appdotnetButton.hidden = NO;
         
         // get old comment
         self.commentField.text = [self stringByStrippingHTML:[appDelegate.activeComment objectForKey:@"comments"]];
@@ -329,7 +326,6 @@
     } else if ([type isEqualToString: @"share"]) {        
         facebookButton.hidden = NO;
         twitterButton.hidden = NO;
-        appdotnetButton.hidden = NO;
         [submitButton setTitle:@"Share this story"];
         [submitButton setAction:(@selector(doShareThisStory:))];
         if (![self.currentType isEqualToString:@"share"] &&
@@ -337,6 +333,8 @@
             self.commentField.text = @"";
         }
     }
+    
+    [self onTextChange:nil];
 }
 
 - (void)clearComments {
@@ -344,7 +342,6 @@
     self.currentType = nil;
     self.twitterButton.selected = NO;
     self.facebookButton.selected = NO;
-    self.appdotnetButton.selected = NO;
 }
 
 # pragma mark
@@ -354,70 +351,61 @@
     [appDelegate.storyPageControl showShareHUD:@"Sharing"];
     NSString *urlString = [NSString stringWithFormat:@"%@/social/share_story",
                            self.appDelegate.url];
-
-    NSURL *url = [NSURL URLWithString:urlString];
-    ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:url];
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    NSMutableArray *services = [NSMutableArray array];
     
     NSString *feedIdStr = [NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"story_feed_id"]];
     NSString *storyIdStr = [NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"id"]];
 
-    [request setPostValue:feedIdStr forKey:@"feed_id"]; 
-    [request setPostValue:storyIdStr forKey:@"story_id"];
+    [params setObject:feedIdStr forKey:@"feed_id"]; 
+    [params setObject:storyIdStr forKey:@"story_id"];
     
     if (facebookButton.selected) {
-        [request addPostValue:@"facebook" forKey:@"post_to_services"];     
+        [services addObject:@"facebook"];
     }
     if (twitterButton.selected) {
-        [request addPostValue:@"twitter" forKey:@"post_to_services"];
+        [services addObject:@"twitter"];
     }
-    if (appdotnetButton.selected) {
-        [request addPostValue:@"appdotnet" forKey:@"post_to_services"];
-    }
+    [params setObject:services forKey:@"post_to_services"];
     
     if (appDelegate.storiesCollection.isSocialRiverView) {
         if ([[appDelegate.activeStory objectForKey:@"friend_user_ids"] count] > 0) {
-            [request setPostValue:[NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"friend_user_ids"][0]] forKey:@"source_user_id"];
+            [params setObject:[NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"friend_user_ids"][0]] forKey:@"source_user_id"];
         } else if ([[appDelegate.activeStory objectForKey:@"public_user_ids"] count] > 0) {
-            [request setPostValue:[NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"public_user_ids"][0]] forKey:@"source_user_id"];
+            [params setObject:[NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"public_user_ids"][0]] forKey:@"source_user_id"];
         }
     } else {
         if ([appDelegate.activeStory objectForKey:@"social_user_id"] != nil) {
             NSString *sourceUserIdStr = [NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"social_user_id"]];
-            [request setPostValue:sourceUserIdStr forKey:@"source_user_id"]; 
+            [params setObject:sourceUserIdStr forKey:@"source_user_id"]; 
         }
     }
 
     
     NSString *comments = commentField.text;
     if ([comments length]) {
-        [request setPostValue:comments forKey:@"comments"]; 
+        [params setObject:comments forKey:@"comments"]; 
     }
-    [request setDelegate:self];
-    [request setDidFinishSelector:@selector(finishShareThisStory:)];
-    [request setDidFailSelector:@selector(requestFailed:)];
-    [request startAsynchronous];
+    [appDelegate.networkManager POST:urlString parameters:params progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+        [self finishShareThisStory:responseObject];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)task.response;
+        [self requestFailed:error statusCode:httpResponse.statusCode];
+    }];
+
     [appDelegate hideShareView:YES];
 }
 
-- (void)finishShareThisStory:(ASIHTTPRequest *)request {
-    NSString *responseString = [request responseString];
-    NSData *responseData=[responseString dataUsingEncoding:NSUTF8StringEncoding];    
-    NSError *error;
-    NSDictionary *results = [NSJSONSerialization 
-                             JSONObjectWithData:responseData
-                             options:kNilOptions 
-                             error:&error];
-    
-    if (request.responseStatusCode != 200) {
-        return [self requestFailed:request];
-    }
-    
+- (void)finishShareThisStory:(NSDictionary *)results {
     NSArray *userProfiles = [results objectForKey:@"user_profiles"];
     appDelegate.storiesCollection.activeFeedUserProfiles = [DataUtilities
                                                             updateUserProfiles:appDelegate.storiesCollection.activeFeedUserProfiles
                                                             withNewUserProfiles:userProfiles];
     [self replaceStory:[results objectForKey:@"story"] withReplyId:nil];
     [appDelegate.feedDetailViewController redrawUnreadStory];
+
+    [MBProgressHUD hideHUDForView:appDelegate.storyPageControl.view animated:NO];
+    [MBProgressHUD hideHUDForView:appDelegate.storyPageControl.currentPage.view animated:NO];
 }
 
 # pragma mark
@@ -437,55 +425,40 @@
     NSString *feedIdStr = [NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"story_feed_id"]];
     NSString *storyIdStr = [NSString stringWithFormat:@"%@", [appDelegate.activeStory objectForKey:@"id"]];
     
-    NSURL *url = [NSURL URLWithString:urlString];
-    ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:url];
-    [request setPostValue:feedIdStr forKey:@"story_feed_id"]; 
-    [request setPostValue:storyIdStr forKey:@"story_id"];
-    [request setPostValue:[appDelegate.activeComment objectForKey:@"user_id"] forKey:@"comment_user_id"];
-    [request setPostValue:commentField.text forKey:@"reply_comments"]; 
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    [params setObject:feedIdStr forKey:@"story_feed_id"]; 
+    [params setObject:storyIdStr forKey:@"story_id"];
+    [params setObject:[appDelegate.activeComment objectForKey:@"user_id"] forKey:@"comment_user_id"];
+    [params setObject:commentField.text forKey:@"reply_comments"]; 
     
     if (self.activeReplyId) {
-        [request setPostValue:activeReplyId forKey:@"reply_id"]; 
+        [params setObject:activeReplyId forKey:@"reply_id"]; 
     }
     
-    [request setDelegate:self];
-    [request setDidFinishSelector:@selector(finishAddReply:)];
-    [request setDidFailSelector:@selector(requestFailed:)];
-    [request startAsynchronous];
+    [appDelegate.networkManager POST:urlString parameters:params progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+        [self finishAddReply:responseObject];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)task.response;
+        [self requestFailed:error statusCode:httpResponse.statusCode];
+    }];
+
     [appDelegate hideShareView:NO];
 }
 
-- (void)finishAddReply:(ASIHTTPRequest *)request {
+- (void)finishAddReply:(NSDictionary *)results {
     NSLog(@"Successfully added.");
-    NSString *responseString = [request responseString];
-    NSData *responseData=[responseString dataUsingEncoding:NSUTF8StringEncoding];    
-    NSError *error;
-    NSDictionary *results = [NSJSONSerialization 
-                             JSONObjectWithData:responseData
-                             options:kNilOptions 
-                             error:&error];
 
-    if (request.responseStatusCode != 200) {
-        return [self requestFailed:request];
-    }
-    
     // add the comment into the activeStory dictionary
     NSDictionary *newStory = [DataUtilities updateComment:results for:appDelegate];
     [self replaceStory:newStory withReplyId:[results objectForKey:@"reply_id"]];
 }
 
-- (void)requestFailed:(ASIHTTPRequest *)request {
-    NSString *error;
-    
+- (void)requestFailed:(NSError *)error statusCode:(NSInteger)statusCode {
     [MBProgressHUD hideHUDForView:appDelegate.storyPageControl.view animated:NO];
-    
-    if ([request error]) {
-        error = [NSString stringWithFormat:@"%@", [request error]];
-    } else {
-        error = @"The server barfed!";
-    }
+    [MBProgressHUD hideHUDForView:appDelegate.storyPageControl.currentPage.view animated:NO];
+
     NSLog(@"Error: %@", error);
-    [appDelegate.storyPageControl.currentPage informError:error];
+    [appDelegate.storyPageControl.currentPage informError:error statusCode:statusCode];
 }
 
 - (void)replaceStory:(NSDictionary *)newStory withReplyId:(NSString *)replyId {
@@ -532,7 +505,8 @@
             self.submitButton.title = @"Share with comments";
         } else {
             self.submitButton.title = @"Share this story";
-        }   
+        }
+        self.submitButton.enabled = YES;
     } else if ([self.currentType isEqualToString: @"reply"] ||
                [self.currentType isEqualToString:@"edit-reply"]) {
         self.submitButton.enabled = [self.commentField.text length] > 0;

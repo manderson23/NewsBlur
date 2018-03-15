@@ -9,19 +9,25 @@
 #import <UIKit/UIKit.h>
 #import "NewsBlurAppDelegate.h"
 #import "FolderTitleView.h"
-#import "ASIHTTPRequest.h"
-#import "PullToRefreshView.h"
 #import "BaseViewController.h"
 #import "NBNotifier.h"
 #import "IASKAppSettingsViewController.h"
 #import "MCSwipeTableViewCell.h"
 
+// indices in appDelegate.dictFoldersArray and button tags
+// keep in sync with NewsBlurTopSectionNames
+static enum {
+    NewsBlurTopSectionGlobalSharedStories = 0,
+    NewsBlurTopSectionAllSharedStories = 1,
+    NewsBlurTopSectionInfrequentSiteStories = 2,
+    NewsBlurTopSectionAllStories = 3
+} NewsBlurTopSection;
+
 @class NewsBlurAppDelegate;
 
 @interface NewsBlurViewController : BaseViewController
 <UITableViewDelegate, UITableViewDataSource,
-UIAlertViewDelegate, PullToRefreshViewDelegate,
-ASIHTTPRequestDelegate, NSCacheDelegate,
+NSCacheDelegate,
 UIPopoverControllerDelegate,
 IASKSettingsDelegate,
 MCSwipeTableViewCellDelegate,
@@ -31,15 +37,14 @@ UIGestureRecognizerDelegate> {
     NSMutableDictionary * activeFeedLocations;
     NSMutableDictionary *stillVisibleFeeds;
     NSMutableDictionary *visibleFolders;
+    NSMutableDictionary *indexPathsForFeedIds;
     
     BOOL isOffline;
     BOOL viewShowingAllFeeds;
     BOOL interactiveFeedDetailTransition;
-    PullToRefreshView *pull;
     NSDate *lastUpdate;
     NSCache *imageCache;
     
-    UIView *innerView;
 	UITableView * feedTitlesTable;
 	UIToolbar * feedViewToolbar;
     UISlider * feedScoreSlider;
@@ -65,6 +70,7 @@ UIGestureRecognizerDelegate> {
 @property (nonatomic) IBOutlet UILabel *neutralCount;
 @property (nonatomic) IBOutlet UILabel *positiveCount;
 @property (nonatomic) IBOutlet UILabel *userLabel;
+@property (nonatomic) IBOutlet UIImageView *yellowIcon;
 @property (nonatomic) IBOutlet UIImageView *greenIcon;
 @property (nonatomic) NSMutableDictionary *activeFeedLocations;
 @property (nonatomic) NSMutableDictionary *stillVisibleFeeds;
@@ -72,13 +78,14 @@ UIGestureRecognizerDelegate> {
 @property (nonatomic, readwrite) BOOL viewShowingAllFeeds;
 @property (nonatomic, readwrite) BOOL interactiveFeedDetailTransition;
 @property (nonatomic, readwrite) BOOL isOffline;
-@property (nonatomic) PullToRefreshView *pull;
+@property (nonatomic) UIRefreshControl *refreshControl;
 @property (nonatomic) NSDate *lastUpdate;
 @property (nonatomic) NSCache *imageCache;
 @property (nonatomic) IBOutlet UISegmentedControl * intelligenceControl;
 @property (nonatomic) NSIndexPath *currentRowAtIndexPath;
 @property (nonatomic) NSInteger currentSection;
 @property (strong, nonatomic) IBOutlet UIView *noFocusMessage;
+@property (strong, nonatomic) IBOutlet UILabel *noFocusLabel;
 @property (strong, nonatomic) IBOutlet UIBarButtonItem *toolbarLeftMargin;
 @property (nonatomic, retain) NBNotifier *notifier;
 @property (nonatomic, retain) UIImageView *avatarImageView;
@@ -86,10 +93,7 @@ UIGestureRecognizerDelegate> {
 - (void)layoutForInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation;
 - (void)returnToApp;
 - (void)fetchFeedList:(BOOL)showLoader;
-- (void)finishedWithError:(ASIHTTPRequest *)request;
-- (void)finishLoadingFeedList:(ASIHTTPRequest *)request;
 - (void)finishLoadingFeedListWithDict:(NSDictionary *)results finished:(BOOL)finished;
-- (void)finishRefreshingFeedList:(ASIHTTPRequest *)request;
 - (void)didSelectSectionHeader:(UIButton *)button;
 - (void)didSelectSectionHeaderWithTag:(NSInteger)tag;
 - (IBAction)selectIntelligence;
@@ -97,8 +101,6 @@ UIGestureRecognizerDelegate> {
 - (void)markFeedsRead:(NSArray *)feedIds cutoffDays:(NSInteger)days;
 - (void)markEverythingReadWithDays:(NSInteger)days;
 - (void)markVisibleStoriesRead;
-- (void)requestFailedMarkStoryRead:(ASIFormDataRequest *)request;
-- (void)finishMarkAllAsRead:(ASIHTTPRequest *)request;
 - (void)didCollapseFolder:(UIButton *)button;
 - (BOOL)isFeedVisible:(id)feedId;
 - (void)changeToAllMode;
@@ -111,16 +113,12 @@ UIGestureRecognizerDelegate> {
 + (int)computeMaxScoreForFeed:(NSDictionary *)feed;
 - (void)loadFavicons;
 - (void)loadAvatars;
-- (void)saveAndDrawFavicons:(ASIHTTPRequest *)request;
-- (void)requestFailed:(ASIHTTPRequest *)request;
 - (void)refreshFeedList;
 - (void)refreshFeedList:(id)feedId;
-- (void)pullToRefreshViewShouldRefresh:(PullToRefreshView *)view;
 - (void)loadOfflineFeeds:(BOOL)failed;
 - (void)showUserProfile;
 - (IBAction)showSettingsPopover:(id)sender;
 - (IBAction)showInteractionsPopover:(id)sender;
-- (NSDate *)pullToRefreshViewLastUpdated:(PullToRefreshView *)view;
 - (void)fadeSelectedCell;
 - (void)fadeFeed:(NSString *)feedId;
 - (IBAction)tapAddSite:(id)sender;
@@ -128,15 +126,17 @@ UIGestureRecognizerDelegate> {
 - (void)resetToolbar;
 - (void)layoutHeaderCounts:(UIInterfaceOrientation)orientation;
 - (void)refreshHeaderCounts;
+- (void)redrawFeedCounts:(id)feedId;
 
+- (void)resizeFontSize;
 - (void)settingsViewControllerDidEnd:(IASKAppSettingsViewController*)sender;
 - (void)settingDidChange:(NSNotification*)notification;
 
 - (void)showRefreshNotifier;
 - (void)showCountingNotifier;
 - (void)showSyncingNotifier;
-- (void)showSyncingNotifier:(float)progress hoursBack:(int)days;
-- (void)showCachingNotifier:(float)progress hoursBack:(int)hours;
+- (void)showSyncingNotifier:(float)progress hoursBack:(NSInteger)days;
+- (void)showCachingNotifier:(float)progress hoursBack:(NSInteger)hours;
 - (void)showOfflineNotifier;
 - (void)showDoneNotifier;
 - (void)hideNotifier;

@@ -13,8 +13,8 @@ public class GlobalSharedStoriesReading extends Reading {
     protected void onCreate(Bundle savedInstanceBundle) {
         super.onCreate(savedInstanceBundle);
 
-        UIUtils.setCustomActionBar(this, R.drawable.ak_icon_global, getResources().getString(R.string.global_shared_stories));
-        readingAdapter = new MixedFeedsReadingAdapter(getFragmentManager(), defaultFeedView, null);
+        UIUtils.setCustomActionBar(this, R.drawable.ak_icon_global, getResources().getString(R.string.global_shared_stories_title));
+        readingAdapter = new MixedFeedsReadingAdapter(getFragmentManager(), null);
 
         getLoaderManager().initLoader(0, null, this);
     }

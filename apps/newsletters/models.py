@@ -1,9 +1,6 @@
 import datetime
 import re
 import redis
-from cgi import escape
-from django.db import models
-from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core.mail import EmailMultiAlternatives
 from django.core.urlresolvers import reverse
@@ -27,7 +24,11 @@ class EmailNewsletter:
         sender_name, sender_username, sender_domain = self._split_sender(params['from'])
         feed_address = self._feed_address(user, "%s@%s" % (sender_username, sender_domain))
         
-        usf = UserSubscriptionFolders.objects.get(user=user)
+        try:
+            usf = UserSubscriptionFolders.objects.get(user=user)
+        except UserSubscriptionFolders.DoesNotExist:
+            logging.user(user, "~FRUser does not have a USF, ignoring newsletter.")
+            return
         usf.add_folder('', 'Newsletters')
         
         try:
@@ -43,6 +44,10 @@ class EmailNewsletter:
             r = redis.Redis(connection_pool=settings.REDIS_PUBSUB_POOL)
             r.publish(user.username, 'reload:%s' % feed.pk)
             self._check_if_first_newsletter(user)
+        
+        feed.last_update = datetime.datetime.now()
+        feed.last_story_date = datetime.datetime.now()
+        feed.save()
         
         if feed.feed_title != sender_name:
             feed.feed_title = sender_name
@@ -77,6 +82,7 @@ class EmailNewsletter:
                                             kwargs={'story_hash': story_hash})),
             "story_guid": params['signature'],
         }
+
         try:
             story = MStory.objects.get(story_hash=story_hash)
         except MStory.DoesNotExist:
@@ -86,7 +92,7 @@ class EmailNewsletter:
         usersub.needs_unread_recalc = True
         usersub.save()
         
-        self._publish_to_subscribers(feed)
+        self._publish_to_subscribers(feed, story.story_hash)
         
         MFetchHistory.add(feed_id=feed.pk, fetch_type='push')
         logging.user(user, "~FCNewsletter feed story: ~SB%s~SN / ~SB%s" % (story.story_title, feed))
@@ -108,12 +114,12 @@ class EmailNewsletter:
         
         params = dict(receiver_user_id=user.pk, email_type='first_newsletter')
         try:
-            sent_email = MSentEmail.objects.get(**params)
+            MSentEmail.objects.get(**params)
             if not force:
                 # Return if email already sent
                 return
         except MSentEmail.DoesNotExist:
-            sent_email = MSentEmail.objects.create(**params)
+            MSentEmail.objects.create(**params)
                 
         text    = render_to_string('mail/email_first_newsletter.txt', {})
         html    = render_to_string('mail/email_first_newsletter.xhtml', {})
@@ -168,18 +174,21 @@ class EmailNewsletter:
             return linkify(linebreaks(params['body-plain']))
     
     def _clean_content(self, content):
+        original = content
         scrubber = Scrubber()
         content = scrubber.scrub(content)
+        if len(content) < len(original)*0.01:
+            content = original
         content = content.replace('!important', '')
         return content
         
-    def _publish_to_subscribers(self, feed):
+    def _publish_to_subscribers(self, feed, story_hash):
         try:
             r = redis.Redis(connection_pool=settings.REDIS_PUBSUB_POOL)
-            listeners_count = r.publish(str(feed.pk), 'story:new')
+            listeners_count = r.publish("%s:story" % feed.pk, 'story:new:%s' % story_hash)
             if listeners_count:
-                logging.debug("   ---> [%-30s] ~FMPublished to %s subscribers" % (feed.title[:30], listeners_count))
+                logging.debug("   ---> [%-30s] ~FMPublished to %s subscribers" % (feed.log_title[:30], listeners_count))
         except redis.ConnectionError:
-            logging.debug("   ***> [%-30s] ~BMRedis is unavailable for real-time." % (feed.title[:30],))
+            logging.debug("   ***> [%-30s] ~BMRedis is unavailable for real-time." % (feed.log_title[:30],))
         
     

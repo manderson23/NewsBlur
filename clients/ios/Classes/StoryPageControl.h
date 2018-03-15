@@ -8,22 +8,19 @@
 
 #import <UIKit/UIKit.h>
 #import "BaseViewController.h"
-#import "NewsBlurAppDelegate.h"
 #import "THCircularProgressView.h"
 #import "NBNotifier.h"
-
-@class NewsBlurAppDelegate;
-@class ASIHTTPRequest;
+#import "StoryDetailViewController.h"
 
 @interface StoryPageControl : BaseViewController
 <UIScrollViewDelegate, UIPopoverControllerDelegate, UIPopoverPresentationControllerDelegate, UIGestureRecognizerDelegate> {
-    
     NewsBlurAppDelegate *appDelegate;
-
     THCircularProgressView *circularProgressView;
     UIButton *buttonPrevious;
     UIButton *buttonNext;
     UIButton *buttonText;
+    UIBarButtonItem *markReadBarButton;
+    UIBarButtonItem *separatorBarButton2;
     UIActivityIndicatorView *loadingIndicator;
     UIBarButtonItem *buttonBack;
     UIView *traverseView;
@@ -38,7 +35,6 @@
     CGFloat scrollPct;
 }
 
-@property (nonatomic) IBOutlet NewsBlurAppDelegate *appDelegate;
 @property (nonatomic) StoryDetailViewController *currentPage;
 @property (nonatomic) StoryDetailViewController *nextPage;
 @property (nonatomic) StoryDetailViewController *previousPage;
@@ -68,6 +64,8 @@
 @property (nonatomic) IBOutlet UIBarButtonItem *originalStoryButton;
 @property (nonatomic, strong) IBOutlet UIBarButtonItem *subscribeButton;
 @property (nonatomic) IBOutlet UIImageView *dragBarImageView;
+@property (nonatomic) IBOutlet NSLayoutConstraint *traverseBottomConstraint;
+@property (nonatomic) IBOutlet NSLayoutConstraint *scrollBottomConstraint;
 @property (readwrite) BOOL traversePinned;
 @property (readwrite) BOOL traverseFloating;
 @property (readwrite) CGFloat inTouchMove;
@@ -96,16 +94,10 @@
 - (void)animateIntoPlace:(BOOL)animated;
 - (void)changePage:(NSInteger)pageIndex;
 - (void)changePage:(NSInteger)pageIndex animated:(BOOL)animated;
-- (void)requestFailed:(ASIHTTPRequest *)request;
 
 - (void)setNextPreviousButtons;
 - (void)setTextButton;
 - (void)setTextButton:(StoryDetailViewController *)storyViewController;
-- (void)finishMarkAsSaved:(ASIFormDataRequest *)request;
-- (BOOL)failedMarkAsSaved:(ASIFormDataRequest *)request;
-- (void)finishMarkAsUnsaved:(ASIFormDataRequest *)request;
-- (BOOL)failedMarkAsUnsaved:(ASIFormDataRequest *)request;
-- (BOOL)failedMarkAsUnread:(ASIFormDataRequest *)request;
 - (void)subscribeToBlurblog;
 
 - (IBAction)toggleFontSize:(id)sender;
@@ -126,5 +118,11 @@
 - (IBAction)doPreviousStory:(id)sender;
 - (IBAction)tapProgressBar:(id)sender;
 - (IBAction)toggleTextView:(id)sender;
+
+- (void)finishMarkAsSaved:(NSDictionary *)params;
+- (BOOL)failedMarkAsSaved:(NSDictionary *)params;
+- (void)finishMarkAsUnsaved:(NSDictionary *)params;
+- (BOOL)failedMarkAsUnsaved:(NSDictionary *)params;
+- (BOOL)failedMarkAsUnread:(NSDictionary *)params;
 
 @end

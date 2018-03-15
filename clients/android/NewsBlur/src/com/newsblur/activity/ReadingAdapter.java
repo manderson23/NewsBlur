@@ -4,28 +4,24 @@ import android.database.Cursor;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.support.v13.app.FragmentStatePagerAdapter;
-import android.util.Log;
 import android.util.SparseArray;
 import android.view.ViewGroup;
 
 import com.newsblur.domain.Story;
 import com.newsblur.fragment.LoadingFragment;
 import com.newsblur.fragment.ReadingItemFragment;
-import com.newsblur.util.DefaultFeedView;
 
 import java.lang.ref.WeakReference;
 
 public abstract class ReadingAdapter extends FragmentStatePagerAdapter {
 
 	protected Cursor stories;
-    protected DefaultFeedView defaultFeedView;
     protected String sourceUserId;
     private SparseArray<WeakReference<ReadingItemFragment>> cachedFragments;
 	
-	public ReadingAdapter(FragmentManager fm, DefaultFeedView defaultFeedView, String sourceUserId) {
+	public ReadingAdapter(FragmentManager fm, String sourceUserId) {
 		super(fm);
         this.cachedFragments = new SparseArray<WeakReference<ReadingItemFragment>>();
-        this.defaultFeedView = defaultFeedView;
         this.sourceUserId = sourceUserId;
 	}
 	
@@ -36,7 +32,6 @@ public abstract class ReadingAdapter extends FragmentStatePagerAdapter {
         } else {
             stories.moveToPosition(position);
             Story story = Story.fromCursor(stories);
-            String tag = this.getClass().getName() + story.storyHash;
             ReadingItemFragment frag = getReadingItemFragment(story);
             return frag;
         }
@@ -54,7 +49,14 @@ public abstract class ReadingAdapter extends FragmentStatePagerAdapter {
     @Override
     public void destroyItem(ViewGroup container, int position, Object object) {
         cachedFragments.remove(position);
-        super.destroyItem(container, position, object);
+        try {
+            super.destroyItem(container, position, object);
+        } catch (IllegalStateException ise) {
+            // it appears that sometimes the pager impatiently deletes stale fragments befre
+            // even calling it's own destroyItem method.  we're just passing up the stack
+            // after evicting our cache, so don't expose this internal bug from our call stack
+            com.newsblur.util.Log.w(this, "ViewPager adapter rejected own destruction call.");
+        }
     }
 
     public synchronized void swapCursor(Cursor cursor) {
@@ -80,7 +82,8 @@ public abstract class ReadingAdapter extends FragmentStatePagerAdapter {
 			return null;
 		} else {
 			stories.moveToPosition(position);
-			return Story.fromCursor(stories);
+			Story story = Story.fromCursor(stories);
+            return story;
 		}
 	}
 
@@ -117,7 +120,7 @@ public abstract class ReadingAdapter extends FragmentStatePagerAdapter {
     }
 
     @Override
-    public void notifyDataSetChanged() {
+    public synchronized void notifyDataSetChanged() {
         super.notifyDataSetChanged();
 
         // go one step further than the default pageradapter and also refresh the

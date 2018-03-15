@@ -11,7 +11,6 @@
 #import "NewsBlurAppDelegate.h"
 #import "UserProfileViewController.h"
 #import <QuartzCore/QuartzCore.h>
-#import "ASIHTTPRequest.h"
 #import "ActivityCell.h"
 #import "SmallActivityCell.h"
 
@@ -19,7 +18,6 @@
 
 @synthesize appDelegate;
 @synthesize activitiesTable;
-@synthesize popoverController;
 @synthesize pageFetching;
 @synthesize pageFinished;
 @synthesize activitiesPage;
@@ -27,13 +25,9 @@
 #define MINIMUM_ACTIVITY_HEIGHT_IPAD 78
 #define MINIMUM_ACTIVITY_HEIGHT_IPHONE 54
 
-- (id)initWithFrame:(CGRect)frame
-{
-    self = [super initWithFrame:frame];
-    if (self) {
-        // initialize code here
-    }
-    return self;
+- (void)awakeFromNib {
+    [super awakeFromNib];
+    self.appDelegate = (NewsBlurAppDelegate *)[[UIApplication sharedApplication] delegate];
 }
 
 - (void)layoutSubviews {
@@ -49,7 +43,6 @@
 }
     
 - (void)refreshWithActivities:(NSArray *)activities {
-    self.appDelegate = (NewsBlurAppDelegate *)[[UIApplication sharedApplication] delegate];   
     appDelegate.userActivitiesArray = activities;
 
     [self.activitiesTable reloadData];
@@ -102,26 +95,17 @@
                                [appDelegate.dictSocialProfile objectForKey:@"user_id"],
                                page];
         
-        NSURL *url = [NSURL URLWithString:urlString];
-        ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:url];
-        [request setValidatesSecureCertificate:NO];
-        [request setDidFinishSelector:@selector(finishLoadActivities:)];
-        [request setDidFailSelector:@selector(requestFailed:)];
-        [request setDelegate:self];
-        [request startAsynchronous];
+        [appDelegate.networkManager GET:urlString parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+            [self finishLoadActivities:responseObject];
+        } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+            [appDelegate informError:error];
+        }];
     }
 }
 
-- (void)finishLoadActivities:(ASIHTTPRequest *)request {
+- (void)finishLoadActivities:(NSDictionary *)results {
     self.pageFetching = NO;
-    NSString *responseString = [request responseString];
-    NSData *responseData = [responseString dataUsingEncoding:NSUTF8StringEncoding];    
-    NSError *error;
-    NSDictionary *results = [NSJSONSerialization 
-                             JSONObjectWithData:responseData
-                             options:kNilOptions 
-                             error:&error];
-    
+
     // check for last page
     if (![[results objectForKey:@"has_next_page"] intValue]) {
         self.pageFinished = YES;
@@ -151,12 +135,6 @@
     
     [self refreshWithActivities:appDelegate.userActivitiesArray];
 } 
-
-- (void)requestFailed:(ASIHTTPRequest *)request {
-    NSError *error = [request error];
-    NSLog(@"Error: %@", error);
-    [appDelegate informError:error];
-}
 
 #pragma mark -
 #pragma mark Table View - Interactions List

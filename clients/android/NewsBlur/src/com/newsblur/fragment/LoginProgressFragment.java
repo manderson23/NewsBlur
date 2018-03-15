@@ -1,10 +1,11 @@
 package com.newsblur.fragment;
 
-import android.content.Context;
+import android.app.Activity;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.app.Fragment;
+import android.graphics.Bitmap;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -86,7 +87,7 @@ public class LoginProgressFragment extends Fragment {
 
 		@Override
 		protected void onPostExecute(LoginResponse result) {
-            Context c = getActivity();
+            Activity c = getActivity();
             if (c == null) return; // we might have run past the lifecycle of the activity
 			if (!result.isError()) {
 				final Animation a = AnimationUtils.loadAnimation(c, R.anim.text_down);
@@ -94,8 +95,11 @@ public class LoginProgressFragment extends Fragment {
 				loggingInProgress.setVisibility(View.GONE);
 				updateStatus.startAnimation(a);
 
-				loginProfilePicture.setVisibility(View.VISIBLE);
-				loginProfilePicture.setImageBitmap(UIUtils.roundCorners(PrefsUtils.getUserImage(c), 10f));
+                Bitmap userImage = PrefsUtils.getUserImage(c);
+                if (userImage != null ) {
+                    loginProfilePicture.setVisibility(View.VISIBLE);
+                    loginProfilePicture.setImageBitmap(UIUtils.clipAndRound(userImage, 10f, false));
+                }
 				feedProgress.setVisibility(View.VISIBLE);
 
 				final Animation b = AnimationUtils.loadAnimation(c, R.anim.text_up);

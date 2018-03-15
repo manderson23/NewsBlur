@@ -95,22 +95,60 @@
 			<string>default_confirm_read_filter</string>
 		</dict>
 		<dict>
+			<key>FooterText</key>
+			<string>You can change this setting in the Infrequent Site Stories view.</string>
 			<key>Type</key>
 			<string>PSMultiValueSpecifier</string>
 			<key>Title</key>
-			<string>Mark stories read on scroll</string>
+			<string>Infrequent stories per month</string>
 			<key>Titles</key>
 			<array>
-				<string>Mark read when scrolling past</string>
-				<string>Don&apos;t automatically mark read</string>
+				<string>&lt; 5 stories/month</string>
+				<string>&lt; 15 stories/month</string>
+				<string>&lt; 30 stories/month</string>
+				<string>&lt; 60 stories/month</string>
+				<string>&lt; 90 stories/month</string>
 			</array>
 			<key>DefaultValue</key>
-			<string>nothing</string>
+			<integer>30</integer>
 			<key>Values</key>
 			<array>
-				<string>mark_on_scroll</string>
-				<string>nothing</string>
+				<integer>5</integer>
+				<integer>15</integer>
+				<integer>30</integer>
+				<integer>60</integer>
+				<integer>90</integer>
 			</array>
+			<key>Key</key>
+			<string>infrequent_stories_per_month</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Show Infrequent Site Stories</string>
+			<key>DefaultValue</key>
+			<string>YES</string>
+			<key>Key</key>
+			<string>show_infrequent_site_stories</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Show Global Shared Stories</string>
+			<key>DefaultValue</key>
+			<string>YES</string>
+			<key>Key</key>
+			<string>show_global_shared_stories</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Mark stories read on scroll</string>
+			<key>DefaultValue</key>
+			<string>YES</string>
 			<key>Key</key>
 			<string>default_scroll_read_filter</string>
 		</dict>
@@ -133,6 +171,22 @@
 			<string>story_list_preview_images</string>
 			<key>DefaultValue</key>
 			<true/>
+		</dict>
+		<dict>
+			<key>Title</key>
+			<string>Feed list</string>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Show feeds after being read</string>
+			<key>Key</key>
+			<string>show_feeds_after_being_read</string>
+			<key>DefaultValue</key>
+			<false/>
 		</dict>
 		<dict>
 			<key>Title</key>
@@ -543,6 +597,28 @@
 			<string>story_detail_swipe_left_edge</string>
 		</dict>
 		<dict>
+			<key>FooterText</key>
+			<string>Quickly access the intelligence trainer or site notifications from the feed list.</string>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Swipe from left on feed</string>
+			<key>Titles</key>
+			<array>
+				<string>Train intelligence</string>
+				<string>Notifications</string>
+			</array>
+			<key>DefaultValue</key>
+			<string>notifications</string>
+			<key>Values</key>
+			<array>
+				<string>trainer</string>
+				<string>notifications</string>
+			</array>
+			<key>Key</key>
+			<string>feed_swipe_left</string>
+		</dict>
+		<dict>
 			<key>Title</key>
 			<string>Reading Stories</string>
 			<key>Type</key>
@@ -567,38 +643,54 @@
 			<array>
 				<string>In-app browser</string>
 				<string>In-app Safari</string>
+				<string>In-app Safari Reader Mode</string>
 				<string>Safari</string>
 				<string>Chrome</string>
 				<string>Opera Mini</string>
+				<string>Firefox</string>
 			</array>
 			<key>DefaultValue</key>
-			<string>inapp</string>
+			<string>inappsafari</string>
 			<key>Values</key>
 			<array>
 				<string>inapp</string>
 				<string>inappsafari</string>
+				<string>inappsafarireader</string>
 				<string>safari</string>
 				<string>chrome</string>
 				<string>opera_mini</string>
+				<string>firefox</string>
 			</array>
 			<key>Key</key>
 			<string>story_browser</string>
 		</dict>
 		<dict>
 			<key>Title</key>
-			<string>Feed list</string>
+			<string>App badge</string>
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 		</dict>
 		<dict>
 			<key>Type</key>
-			<string>PSToggleSwitchSpecifier</string>
+			<string>PSMultiValueSpecifier</string>
 			<key>Title</key>
-			<string>Show feeds after being read</string>
-			<key>Key</key>
-			<string>show_feeds_after_being_read</string>
+			<string>Show unread count</string>
+			<key>Titles</key>
+			<array>
+				<string>Off</string>
+				<string>Unread + Focus</string>
+				<string>Focus only</string>
+			</array>
 			<key>DefaultValue</key>
-			<false/>
+			<string>off</string>
+			<key>Values</key>
+			<array>
+				<string>off</string>
+				<string>unread</string>
+				<string>focus</string>
+			</array>
+			<key>Key</key>
+			<string>app_unread_badge</string>
 		</dict>
 		<dict>
 			<key>Title</key>
@@ -623,6 +715,56 @@
 			<string>URL</string>
 			<key>Key</key>
 			<string>custom_domain</string>
+		</dict>
+		<dict>
+			<key>Title</key>
+			<string>About NewsBlur</string>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSTitleValueSpecifier</string>
+			<key>Title</key>
+			<string>Version</string>
+			<key>Key</key>
+			<string>version</string>
+			<key>DefaultValue</key>
+			<string>$(CURRENT_PROJECT_VERSION)</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSTitleValueSpecifier</string>
+			<key>Title</key>
+			<string>Copyright</string>
+			<key>DefaultValue</key>
+			<string>NewsBlur, Inc.</string>
+			<key>Key</key>
+			<string>copyright</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<string>www.newsblur.com/privacy</string>
+			<key>File</key>
+			<string>http://www.newsblur.com/privacy</string>
+			<key>Title</key>
+			<string>Privacy Policy</string>
+			<key>Type</key>
+			<string>IASKOpenURLSpecifier</string>
+			<key>IASKTextAlignment</key>
+			<string>IASKUITextAlignmentCenter</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<string>www.newsblur.com/tos</string>
+			<key>File</key>
+			<string>http://www.newsblur.com/tos</string>
+			<key>Title</key>
+			<string>Terms of Use</string>
+			<key>Type</key>
+			<string>IASKOpenURLSpecifier</string>
+			<key>IASKTextAlignment</key>
+			<string>IASKUITextAlignmentCenter</string>
 		</dict>
 	</array>
 	<key>StringsTable</key>

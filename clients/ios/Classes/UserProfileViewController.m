@@ -11,7 +11,6 @@
 #import "ProfileBadge.h"
 #import "SmallActivityCell.h"
 #import "FollowGrid.h"
-#import "ASIHTTPRequest.h"
 #import "Utilities.h"
 #import "MBProgressHUD.h"
 #import <QuartzCore/QuartzCore.h>
@@ -24,7 +23,6 @@
 @synthesize activitiesArray;
 @synthesize activitiesUsername;
 @synthesize userProfile;
-@synthesize request;
 
 
 - (id)initWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)nibBundleOrNil {
@@ -38,8 +36,6 @@
 - (void)dealloc {
     self.profileTable.dataSource = nil;
     self.profileTable.delegate = nil;
-    request.delegate = nil;
-    [request cancel];
 }
 
 - (void)viewDidLoad {
@@ -52,6 +48,8 @@
     self.profileTable.dataSource = self;
     self.profileTable.delegate = self;
     self.profileTable.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.profileTable.backgroundView = nil;
+    self.profileTable.backgroundColor = UIColorFromRGB(0xFFFFFF);
     
 //    self.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     ProfileBadge *badge = [[ProfileBadge alloc] init];
@@ -112,27 +110,17 @@
                            "&category=follow&category=comment_reply&category=comment_like&category=sharedstory",
                            self.appDelegate.url,
                            appDelegate.activeUserProfileId];
-    NSURL *url = [NSURL URLWithString:urlString];
 
-    request = [ASIHTTPRequest requestWithURL:url];
-
-    [request setDelegate:self];
-    [request setDidFinishSelector:@selector(requestFinished:)];
-    [request setDidFailSelector:@selector(requestFailed:)];
-    [request startAsynchronous];
+    [appDelegate.networkManager GET:urlString parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+        [self requestFinished:responseObject];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        [self informError:error];
+    }];
 }
 
-- (void)requestFinished:(ASIHTTPRequest *)_request {
+- (void)requestFinished:(NSDictionary *)results {
     [MBProgressHUD hideHUDForView:self.view animated:YES];
-    NSString *responseString = [_request responseString];
-    NSData *responseData=[responseString dataUsingEncoding:NSUTF8StringEncoding];    
-    NSError *error;
-    NSDictionary *results = [NSJSONSerialization 
-                             JSONObjectWithData:responseData
-                             options:kNilOptions 
-                             error:&error];
 
-    // int statusCode = [request responseStatusCode];
     int code = [[results valueForKey:@"code"] intValue];
     if (code == -1) {
         NSLog(@"ERROR");
@@ -157,12 +145,6 @@
 
     [self.profileTable reloadData];
     [self.view addSubview:self.profileTable];
-}
-
-- (void)requestFailed:(ASIHTTPRequest *)_request {
-    NSError *error = [_request error];
-    NSLog(@"Error: %@", error);
-    [appDelegate informError:error];
 }
 
 #pragma mark -
@@ -193,22 +175,13 @@
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    CGRect vb = self.view.bounds;
-    // you can only hardcode this due to limitation in apple API that doesn't give you width of grouped cell
-    int width = 300 - 20;
-    if (vb.size.width == 480) {
-        width = 460 - 20;
-    } else if (vb.size.width == 540) {
-        width = 478 - 20;
-    }
-
     if (indexPath.section == 0 || indexPath.section == 2) {
         return 180;
     } else {
         SmallActivityCell *activityCell = [[SmallActivityCell alloc] init];
         int height = [activityCell setActivity:[self.activitiesArray objectAtIndex:(indexPath.row)] 
                                withUserProfile:self.userProfile
-                                     withWidth:width];
+                                     withWidth:self.view.frame.size.width - 20];
         return height;
     }
 }
@@ -239,7 +212,7 @@
                     reuseIdentifier:@"ActivityCellIdentifier"];
         }
         cell.selectionStyle = UITableViewCellSelectionStyleGray;
-        cell.accessoryType=  UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         [cell setActivity:[self.activitiesArray objectAtIndex:(indexPath.row)] 
           withUserProfile:self.userProfile
                 withWidth:vb.size.width];

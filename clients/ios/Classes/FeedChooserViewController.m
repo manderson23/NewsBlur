@@ -42,6 +42,8 @@ static const CGFloat kFolderTitleHeight = 36.0;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+
+    appDelegate = [NewsBlurAppDelegate sharedAppDelegate];
     
     UIBarButtonItem *doneItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
     self.optionsItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"nav_icn_settings.png"] style:UIBarButtonItemStylePlain target:self action:@selector(showOptionsMenu)];
@@ -64,7 +66,7 @@ static const CGFloat kFolderTitleHeight = 36.0;
     }
     
     self.tableView.backgroundColor = UIColorFromRGB(0xECEEEA);
-    self.tableView.separatorColor = UIColorFromRGB(0x909090);
+    self.tableView.separatorColor = UIColorFromRGB(0xF0F0F0);
     self.tableView.sectionIndexColor = UIColorFromRGB(0x303030);
     self.tableView.sectionIndexBackgroundColor = UIColorFromRGB(0xDCDFD6);
     
@@ -96,21 +98,14 @@ static const CGFloat kFolderTitleHeight = 36.0;
     }
     
     NSString *urlString = [NSString stringWithFormat:@"%@/reader/feeds?flat=true&update_counts=false&include_inactive=true", self.appDelegate.url];
-    NSURL *url = [NSURL URLWithString:urlString];
-    ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:url];
-    request.delegate = self;
-    request.didFinishSelector = @selector(finishLoadingInactiveFeeds:);
-    request.didFailSelector = @selector(finishedWithError:);
-    request.timeOutSeconds = 30;
-    [request startAsynchronous];
+    [appDelegate.networkManager GET:urlString parameters:nil progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+        [self finishLoadingInactiveFeeds:responseObject];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        [self finishedWithError:error];
+    }];
 }
 
-- (void)finishLoadingInactiveFeeds:(ASIHTTPRequest *)request {
-    NSString *responseString = request.responseString;
-    NSData *responseData = [responseString dataUsingEncoding:NSUTF8StringEncoding];
-    NSError *error = nil;
-    NSDictionary *results = [NSJSONSerialization JSONObjectWithData:responseData options:kNilOptions error:&error];
-    
+- (void)finishLoadingInactiveFeeds:(NSDictionary *)results {
     self.dictFolders = results[@"flat_folders_with_inactive"];
     self.inactiveFeeds = results[@"inactive_feeds"];
     
@@ -126,8 +121,7 @@ static const CGFloat kFolderTitleHeight = 36.0;
     [MBProgressHUD hideHUDForView:self.view animated:YES];
 }
 
-- (void)finishedWithError:(ASIHTTPRequest *)request {
-    NSError *error = request.error;
+- (void)finishedWithError:(NSError *)error {
     NSLog(@"informError: %@", error);
     NSString *errorMessage = [error localizedDescription];
     
@@ -138,11 +132,11 @@ static const CGFloat kFolderTitleHeight = 36.0;
     [HUD setMode:MBProgressHUDModeCustomView];
     HUD.labelText = errorMessage;
     [HUD hide:YES afterDelay:1];
+    
     [self rebuildItemsAnimated:YES];
 }
 
 - (void)rebuildItemsAnimated:(BOOL)animated {
-    NewsBlurAppDelegate *appDelegate = self.appDelegate;
     FeedChooserItem *section = nil;
     
     NSMutableArray *sections = [NSMutableArray array];
@@ -464,17 +458,16 @@ static const CGFloat kFolderTitleHeight = 36.0;
     }
     
     NSString *urlString = [NSString stringWithFormat:@"%@/reader/move_feeds_by_folder_to_folder", self.appDelegate.url];
-    NSURL *url = [NSURL URLWithString:urlString];
-    ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:url];
-    [request setPostValue:feedsByFolder.JSONRepresentation forKey:@"feeds_by_folder"];
-    [request setPostValue:toFolder.identifier forKey:@"to_folder"];
-    [request setCompletionBlock:^(void) {
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    [params setObject:feedsByFolder.JSONRepresentation forKey:@"feeds_by_folder"];
+    [params setObject:toFolder.identifier forKey:@"to_folder"];
+    [appDelegate.networkManager POST:urlString parameters:params progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
         HUD.labelText = @"Reloading...";
         [self.appDelegate reloadFeedsView:YES];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        [self finishedWithError:error];
     }];
-    request.didFailSelector = @selector(finishedWithError:);
-    request.timeOutSeconds = 30;
-    [request startAsynchronous];
+    
 }
 
 - (void)showMoveMenu {
@@ -519,16 +512,14 @@ static const CGFloat kFolderTitleHeight = 36.0;
     }
     
     NSString *urlString = [NSString stringWithFormat:@"%@/reader/delete_feeds_by_folder", self.appDelegate.url];
-    NSURL *url = [NSURL URLWithString:urlString];
-    ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:url];
-    [request setPostValue:feedsByFolder.JSONRepresentation forKey:@"feeds_by_folder"];
-    [request setCompletionBlock:^(void) {
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
+    [params setObject:feedsByFolder.JSONRepresentation forKey:@"feeds_by_folder"];
+    [appDelegate.networkManager POST:urlString parameters:params progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
         HUD.labelText = @"Reloading...";
         [self.appDelegate reloadFeedsView:YES];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        [self finishedWithError:error];
     }];
-    request.didFailSelector = @selector(finishedWithError:);
-    request.timeOutSeconds = 30;
-    [request startAsynchronous];
 }
 
 - (void)deleteFeeds {
@@ -554,10 +545,12 @@ static const CGFloat kFolderTitleHeight = 36.0;
 
 - (void)updateDictFolders {
     NSMutableDictionary *folders = [self.appDelegate.dictFolders mutableCopy];
-    NSDictionary *everything = folders[@"everything"];
+    if ([folders objectForKey:@"everything"]) {
+        NSDictionary *everything = folders[@"everything"];
     
-    [folders removeObjectForKey:@"everything"];
-    [folders setObject:everything forKey:@" "];
+        [folders removeObjectForKey:@"everything"];
+        [folders setObject:everything forKey:@" "];
+    }
     
     self.dictFolders = folders;
 }
@@ -568,23 +561,23 @@ static const CGFloat kFolderTitleHeight = 36.0;
     HUD.labelText = @"Updating...";
     
     NSString *urlString = [NSString stringWithFormat:@"%@/reader/save_feed_chooser", self.appDelegate.url];
-    NSURL *url = [NSURL URLWithString:urlString];
-    ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:url];
     NSArray *mutedIndexPaths = self.tableView.indexPathsForSelectedRows;
+    NSMutableArray *feeds = [NSMutableArray array];
+    NSMutableDictionary *params = [NSMutableDictionary dictionary];
     
     [self enumerateAllRowsUsingBlock:^(NSIndexPath *indexPath, FeedChooserItem *item) {
         if (![mutedIndexPaths containsObject:indexPath]) {
-            [request addPostValue:item.identifier forKey:@"approved_feeds"];
+            [feeds addObject:item.identifier];
         }
     }];
     
-    [request setCompletionBlock:^(void) {
+    [params setObject:feeds forKey:@"approved_feeds"];
+    [appDelegate.networkManager POST:urlString parameters:params progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
         [self.appDelegate reloadFeedsView:YES];
         [self dismissViewControllerAnimated:YES completion:nil];
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        [self finishedWithError:error];
     }];
-    request.didFailSelector = @selector(finishedWithError:);
-    request.timeOutSeconds = 30;
-    [request startAsynchronous];
 }
 
 - (BOOL)didChangeActiveFeeds {
@@ -650,6 +643,7 @@ static const CGFloat kFolderTitleHeight = 36.0;
     cell.isMuteOperation = self.operation == FeedChooserOperationMuteSites;
     cell.textLabel.text = item.title;
     cell.detailTextLabel.text = [item detailForSort:self.sort];
+    cell.isFaded = [[cell.detailTextLabel.text substringToIndex:2] isEqualToString:@"0 "];
     cell.imageView.image = item.icon;
     
     if (self.operation == FeedChooserOperationMuteSites) {

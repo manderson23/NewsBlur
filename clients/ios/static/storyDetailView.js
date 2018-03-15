@@ -1,10 +1,12 @@
 var loadImages = function() {
     
     $('.NB-story img').each(function () {
+        if ($(this).closest('.NB-twitter-rss-author,.NB-twitter-rss-retweet').length) return;
         setImage(this);
     });
 
     $('.NB-story img').bind('load', function () {
+        if ($(this).closest('.NB-twitter-rss-author,.NB-twitter-rss-retweet').length) return;
         setImage(this);
     });
 
@@ -209,9 +211,15 @@ function attachFastClick() {
     }
 }
 
+function notifyLoaded() {
+    var url = "http://ios.newsblur.com/notify-loaded";
+    window.location = url;
+}
+
 loadImages();
 fitVideos();
 
 Zepto(function($) {
       attachFastClick();
+      notifyLoaded();
 });

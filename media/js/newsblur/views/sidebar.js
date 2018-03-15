@@ -7,6 +7,7 @@ NEWSBLUR.Views.Sidebar = Backbone.View.extend({
         "click .NB-feeds-header-starred": "open_starred_stories",
         "click .NB-feeds-header-read": "open_read_stories",
         "click .NB-feeds-header-river-sites": "open_river_stories",
+        "click .NB-feeds-header-river-infrequent": "open_river_infrequent_stories",
         "click .NB-feeds-header-river-blurblogs .NB-feedlist-collapse-icon": "collapse_river_blurblog",
         "click .NB-feeds-header-river-blurblogs": "open_river_blurblogs_stories",
         "click .NB-feeds-header-river-global": "open_river_global_stories"
@@ -30,6 +31,37 @@ NEWSBLUR.Views.Sidebar = Backbone.View.extend({
     },
     
     show_collapsed_starred: function(options) {
+        options = options || {};
+        var $header = NEWSBLUR.reader.$s.$starred_header;
+        var $folder = this.$('.NB-starred-folder');
+        
+        $header.addClass('NB-folder-collapsed');
+        
+        if (!options.skip_animation) {
+            $header.addClass('NB-feedlist-folder-title-recently-collapsed');
+            $header.one('mouseover', function() {
+                $header.removeClass('NB-feedlist-folder-title-recently-collapsed');
+            });
+        } else {
+            $folder.css({
+                display: 'none',
+                opacity: 0
+            });
+        }
+    },
+    
+    check_searches_collapsed: function(options) {
+        options = options || {};
+        var collapsed = _.contains(NEWSBLUR.Preferences.collapsed_folders, 'searches');
+        
+        if (collapsed) {
+            this.show_collapsed_searches(options);
+        }
+        
+        return collapsed;
+    },
+    
+    show_collapsed_searches: function(options) {
         options = options || {};
         var $header = NEWSBLUR.reader.$s.$starred_header;
         var $folder = this.$('.NB-starred-folder');
@@ -141,6 +173,10 @@ NEWSBLUR.Views.Sidebar = Backbone.View.extend({
     
     open_river_stories: function() {
         return NEWSBLUR.reader.open_river_stories();
+    },
+    
+    open_river_infrequent_stories: function() {
+        return NEWSBLUR.reader.open_river_stories(null, null, {'infrequent': NEWSBLUR.assets.preference('infrequent_stories_per_month')});
     },
     
     collapse_river_blurblog: function(e, options) {

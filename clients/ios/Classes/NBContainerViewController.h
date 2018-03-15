@@ -8,6 +8,7 @@
 
 #import <UIKit/UIKit.h>
 #import <SafariServices/SafariServices.h>
+#import "NewsBlurAppDelegate.h"
 
 @class NewsBlurAppDelegate;
 
@@ -51,5 +52,6 @@
 - (void)dragStoryToolbar:(int)yCoordinate;
 - (void)showUserProfilePopover:(id)sender;
 - (void)showTrainingPopover:(id)sender;
+- (void)showNotificationsPopoverWithFeed:(NSString *)feedId sender:(id)sender;
 
 @end

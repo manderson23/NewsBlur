@@ -59,6 +59,9 @@ class DBProfilerMiddleware:
 
     def process_response(self, request, response):
         if hasattr(request, 'sql_times_elapsed'):
+            middleware = SQLLogToConsoleMiddleware()
+            middleware.process_celery(self)
+            # logging.debug(" ---> ~FGProfiling~FB app: %s" % request.sql_times_elapsed)
             self._save_times(request.sql_times_elapsed)
         return response
     
@@ -68,6 +71,13 @@ class DBProfilerMiddleware:
         if hasattr(self, 'sql_times_elapsed'):
             logging.debug(" ---> ~FGProfiling~FB task: %s" % self.sql_times_elapsed)
             self._save_times(self.sql_times_elapsed, 'task_')
+    
+    def process_request_finished(self):
+        middleware = SQLLogToConsoleMiddleware()
+        middleware.process_celery(self)
+        if hasattr(self, 'sql_times_elapsed'):
+            logging.debug(" ---> ~FGProfiling~FB app: %s" % self.sql_times_elapsed)
+            self._save_times(self.sql_times_elapsed, 'app_')
     
     def _save_times(self, db_times, prefix=""):
         if not db_times: return
@@ -254,6 +264,9 @@ BANNED_USER_AGENTS = (
     'missing',
 )
 
+BANNED_USERNAMES = (
+)
+
 class UserAgentBanMiddleware:
     def process_request(self, request):
         user_agent = request.environ.get('HTTP_USER_AGENT', 'missing').lower()
@@ -271,6 +284,15 @@ class UserAgentBanMiddleware:
                 'code': -1
             }
             logging.user(request, "~FB~SN~BBBanned UA: ~SB%s / %s (%s)" % (user_agent, request.path, request.META))
+            
+            return HttpResponse(json.encode(data), status=403, mimetype='text/json')
+
+        if request.user.is_authenticated() and any(username == request.user.username for username in BANNED_USERNAMES):
+            data = {
+                'error': 'User banned: %s' % request.user.username,
+                'code': -1
+            }
+            logging.user(request, "~FB~SN~BBBanned Username: ~SB%s / %s (%s)" % (request.user, request.path, request.META))
             
             return HttpResponse(json.encode(data), status=403, mimetype='text/json')
 

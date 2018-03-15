@@ -29,13 +29,13 @@ public class AppConstants {
     public static final String LAST_SYNC_TIME = "LAST_SYNC_TIME";
 
     // how long to wait before auto-syncing the feed/folder list
-    public static final long AUTO_SYNC_TIME_MILLIS = 20L * 60L * 1000L;
+    public static final long AUTO_SYNC_TIME_MILLIS = 15L * 60L * 1000L;
 
     // how often to rebuild the DB
     public static final long VACUUM_TIME_MILLIS = 12L * 60L * 60L * 1000L;
 
-    // how often to clean up the DB
-    public static final long CLEANUP_TIME_MILLIS = 3L * 60L * 60L * 1000L;
+    // how often to clean up stories from the DB
+    public static final long CLEANUP_TIME_MILLIS = 6L * 60L * 60L * 1000L;
 
     // how often to trigger the BG service. slightly longer than how often we will find new stories,
     // to account for the fact that it is approximate, and missing a cycle is bad.
@@ -51,7 +51,7 @@ public class AppConstants {
     public static final long API_BACKGROUND_BACKOFF_MILLIS = 5L * 60L * 1000L;
 
     // timeouts for API calls, set to something more sane than the default of infinity
-    public static final long API_CONN_TIMEOUT_SECONDS = 60L;
+    public static final long API_CONN_TIMEOUT_SECONDS = 30L;
     public static final long API_READ_TIMEOUT_SECONDS = 120L;
 
     // timeouts for image prefetching, which are a bit tighter, since they are only for caching
@@ -83,13 +83,17 @@ public class AppConstants {
     public final static long SHUTDOWN_SLACK_SECONDS = 60L;
 
     // the maximum duty cycle for expensive background tasks. Tune to <1.0 to force sync loops
-    // to pause periodically and not peg the network/CPU
-    public final static double MAX_BG_DUTY_CYCLE = 0.9;
+    // to pause periodically and yield network/CPU to the foreground UI
+    public final static double MAX_BG_DUTY_CYCLE = 0.8;
 
     // cap duty cycle backoffs to prevent unnecessarily large backoffs
     public final static long DUTY_CYCLE_BACKOFF_CAP_MILLIS = 5L * 1000L;
 
     // link to the web-based forgot password flow
     public final static String FORGOT_PASWORD_URL = "http://www.newsblur.com/folder_rss/forgot_password";
+
+    // how many helper threads to use for loading icons and thumbnails. things look smoother
+    // if this is set to 3+, but as of late 2016, too many devices get resource constrained past 2
+    public final static int IMAGE_LOADER_THREAD_COUNT = 2;
 
 }

@@ -7,7 +7,6 @@ import re
 import redis
 import uuid
 import mongoengine as mongo
-from pprint import pprint
 from django.db import models
 from django.db import IntegrityError
 from django.db.utils import DatabaseError
@@ -16,7 +15,6 @@ from django.db.models import Sum, Avg, Count
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
-from django.core.mail import mail_admins
 from django.core.mail import EmailMultiAlternatives
 from django.core.urlresolvers import reverse
 from django.template.loader import render_to_string
@@ -77,6 +75,7 @@ class Profile(models.Model):
     def canonical(self):
         return {
             'is_premium': self.is_premium,
+            'premium_expire': int(self.premium_expire.strftime('%s')) if self.premium_expire else 0,
             'preferences': json.decode(self.preferences),
             'tutorial_finished': self.tutorial_finished,
             'hide_getting_started': self.hide_getting_started,
@@ -355,7 +354,7 @@ class Profile(models.Model):
     def cancel_premium(self):
         paypal_cancel = self.cancel_premium_paypal()
         stripe_cancel = self.cancel_premium_stripe()
-        return paypal_cancel or stripe_cancel
+        return stripe_cancel or paypal_cancel
     
     def cancel_premium_paypal(self, second_most_recent_only=False):
         transactions = PayPalIPN.objects.filter(custom=self.user.username,
@@ -408,6 +407,36 @@ class Profile(models.Model):
         
         return True
     
+    @property
+    def latest_paypal_email(self):
+        ipn = PayPalIPN.objects.filter(custom=self.user.username)
+        if not len(ipn):
+            return
+        
+        return ipn[0].payer_email
+    
+    def activate_ios_premium(self, product_identifier, transaction_identifier, amount=36):
+        payments = PaymentHistory.objects.filter(user=self.user,
+                                                 payment_identifier=transaction_identifier)
+        if len(payments):
+            # Already paid
+            logging.user(self.user, "~FG~BBAlready paid iOS premium subscription: $%s~FW" % transaction_identifier)
+            return False
+
+        PaymentHistory.objects.create(user=self.user,
+                                      payment_date=datetime.datetime.now(),
+                                      payment_amount=amount,
+                                      payment_provider='ios-subscription',
+                                      payment_identifier=transaction_identifier)
+        
+        self.setup_premium_history(check_premium=True)
+                                      
+        if not self.is_premium:
+            self.activate_premium()
+        
+        logging.user(self.user, "~FG~BBNew iOS premium subscription: $%s~FW" % product_identifier)
+        return True
+        
     @classmethod
     def clear_dead_spammers(self, days=30, confirm=False):
         users = User.objects.filter(date_joined__gte=datetime.datetime.now()-datetime.timedelta(days=days)).order_by('-date_joined')
@@ -417,10 +446,18 @@ class Profile(models.Model):
             opens = UserSubscription.objects.filter(user=user).aggregate(sum=Sum('feed_opens'))['sum']
             reads = RUserStory.read_story_count(user.pk)
             has_numbers = numerics.search(user.username)
+
+            try:
+                has_profile = user.profile.last_seen_ip
+            except Profile.DoesNotExist:
+                usernames.add(user.username)
+                print " ---> Missing profile: %-20s %-30s %-6s %-6s" % (user.username, user.email, opens, reads)
+                continue
+
             if opens is None and not reads and has_numbers:
                 usernames.add(user.username)
                 print " ---> Numerics: %-20s %-30s %-6s %-6s" % (user.username, user.email, opens, reads)
-            elif not user.profile.last_seen_ip:
+            elif not has_profile:
                 usernames.add(user.username)
                 print " ---> No IP: %-20s %-30s %-6s %-6s" % (user.username, user.email, opens, reads)
         
@@ -441,7 +478,7 @@ class Profile(models.Model):
         
         if verbose:
             feed = Feed.get_by_id(feed_id)
-            logging.debug("   ---> [%-30s] ~SN~FBCounting subscribers for feed:~SB~FM%s~SN~FB user:~SB~FM%s" % (feed.title[:30], feed_id, user_id))
+            logging.debug("   ---> [%-30s] ~SN~FBCounting subscribers for feed:~SB~FM%s~SN~FB user:~SB~FM%s" % (feed.log_title[:30], feed_id, user_id))
         
         if feed_id:
             feed_ids = [feed_id]
@@ -503,11 +540,10 @@ class Profile(models.Model):
                 r.expire(premium_key, settings.SUBSCRIBER_EXPIRE*24*60*60)
             
             logging.info("   ---> [%-30s] ~SN~FBCounting subscribers, storing in ~SBredis~SN: ~FMt:~SB~FM%s~SN a:~SB%s~SN p:~SB%s~SN ap:~SB%s" % 
-                          (feed.title[:30], total, active, premium, active_premium))
+                          (feed.log_title[:30], total, active, premium, active_premium))
 
     @classmethod
     def count_all_feed_subscribers_for_user(self, user):
-        SUBSCRIBER_EXPIRE = datetime.datetime.now() - datetime.timedelta(days=settings.SUBSCRIBER_EXPIRE)
         r = redis.Redis(connection_pool=settings.REDIS_FEED_SUB_POOL)
         if not isinstance(user, User):
             user = User.objects.get(pk=user)
@@ -596,12 +632,12 @@ class Profile(models.Model):
         
         params = dict(receiver_user_id=self.user.pk, email_type='first_share')
         try:
-            sent_email = MSentEmail.objects.get(**params)
+            MSentEmail.objects.get(**params)
             if not force:
                 # Return if email already sent
                 return
         except MSentEmail.DoesNotExist:
-            sent_email = MSentEmail.objects.create(**params)
+            MSentEmail.objects.create(**params)
                 
         social_profile = MSocialProfile.objects.get(user_id=self.user.pk)
         params = {
@@ -622,14 +658,14 @@ class Profile(models.Model):
         logging.user(self.user, "~BB~FM~SBSending first share to blurblog email to: %s" % self.user.email)
     
     def send_new_premium_email(self, force=False):
-        subs = UserSubscription.objects.filter(user=self.user)
-        message = """Woohoo!
-        
-User: %(user)s
-Feeds: %(feeds)s
-
-Sincerely,
-NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
+        # subs = UserSubscription.objects.filter(user=self.user)
+#         message = """Woohoo!
+#
+# User: %(user)s
+# Feeds: %(feeds)s
+#
+# Sincerely,
+# NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         # mail_admins('New premium account', message, fail_silently=True)
         
         if not self.user.email or not self.send_emails:
@@ -637,12 +673,12 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         
         params = dict(receiver_user_id=self.user.pk, email_type='new_premium')
         try:
-            sent_email = MSentEmail.objects.get(**params)
+            MSentEmail.objects.get(**params)
             if not force:
                 # Return if email already sent
                 return
         except MSentEmail.DoesNotExist:
-            sent_email = MSentEmail.objects.create(**params)
+            MSentEmail.objects.create(**params)
 
         user    = self.user
         text    = render_to_string('mail/email_new_premium.txt', locals())
@@ -684,12 +720,12 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         
         params = dict(receiver_user_id=self.user.pk, email_type='new_user_queue')
         try:
-            sent_email = MSentEmail.objects.get(**params)
+            MSentEmail.objects.get(**params)
             if not force:
                 # Return if email already sent
                 return
         except MSentEmail.DoesNotExist:
-            sent_email = MSentEmail.objects.create(**params)
+            MSentEmail.objects.create(**params)
 
         user    = self.user
         text    = render_to_string('mail/email_new_user_queue.txt', locals())
@@ -761,13 +797,13 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         
         params = dict(receiver_user_id=self.user.pk, email_type='launch_social')
         try:
-            sent_email = MSentEmail.objects.get(**params)
+            MSentEmail.objects.get(**params)
             if not force:
                 # Return if email already sent
                 logging.user(self.user, "~FM~SB~FRNot~FM sending launch social email for user, sent already: %s" % self.user.email)
                 return
         except MSentEmail.DoesNotExist:
-            sent_email = MSentEmail.objects.create(**params)
+            MSentEmail.objects.create(**params)
         
         delta      = datetime.datetime.now() - self.last_seen_on
         months_ago = delta.days / 30
@@ -783,6 +819,66 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         msg.send(fail_silently=True)
         
         logging.user(self.user, "~BB~FM~SBSending launch social email for user: %s months, %s" % (months_ago, self.user.email))
+    
+    def send_launch_turntouch_email(self, force=False):
+        if not self.user.email or not self.send_emails:
+            logging.user(self.user, "~FM~SB~FRNot~FM sending launch TT email for user, %s: %s" % (self.user.email and 'opt-out: ' or 'blank', self.user.email))
+            return
+        
+        params = dict(receiver_user_id=self.user.pk, email_type='launch_turntouch')
+        try:
+            MSentEmail.objects.get(**params)
+            if not force:
+                # Return if email already sent
+                logging.user(self.user, "~FM~SB~FRNot~FM sending launch social email for user, sent already: %s" % self.user.email)
+                return
+        except MSentEmail.DoesNotExist:
+            MSentEmail.objects.create(**params)
+        
+        delta      = datetime.datetime.now() - self.last_seen_on
+        months_ago = delta.days / 30
+        user    = self.user
+        data    = dict(user=user, months_ago=months_ago)
+        text    = render_to_string('mail/email_launch_turntouch.txt', data)
+        html    = render_to_string('mail/email_launch_turntouch.xhtml', data)
+        subject = "Introducing Turn Touch for NewsBlur"
+        msg     = EmailMultiAlternatives(subject, text, 
+                                         from_email='NewsBlur <%s>' % settings.HELLO_EMAIL,
+                                         to=['%s <%s>' % (user, user.email)])
+        msg.attach_alternative(html, "text/html")
+        msg.send(fail_silently=True)
+        
+        logging.user(self.user, "~BB~FM~SBSending launch TT email for user: %s months, %s" % (months_ago, self.user.email))
+
+    def send_launch_turntouch_end_email(self, force=False):
+        if not self.user.email or not self.send_emails:
+            logging.user(self.user, "~FM~SB~FRNot~FM sending launch TT end email for user, %s: %s" % (self.user.email and 'opt-out: ' or 'blank', self.user.email))
+            return
+        
+        params = dict(receiver_user_id=self.user.pk, email_type='launch_turntouch_end')
+        try:
+            MSentEmail.objects.get(**params)
+            if not force:
+                # Return if email already sent
+                logging.user(self.user, "~FM~SB~FRNot~FM sending launch TT end email for user, sent already: %s" % self.user.email)
+                return
+        except MSentEmail.DoesNotExist:
+            MSentEmail.objects.create(**params)
+        
+        delta      = datetime.datetime.now() - self.last_seen_on
+        months_ago = delta.days / 30
+        user    = self.user
+        data    = dict(user=user, months_ago=months_ago)
+        text    = render_to_string('mail/email_launch_turntouch_end.txt', data)
+        html    = render_to_string('mail/email_launch_turntouch_end.xhtml', data)
+        subject = "Last day to back Turn Touch: NewsBlur's beautiful remote"
+        msg     = EmailMultiAlternatives(subject, text, 
+                                         from_email='NewsBlur <%s>' % settings.HELLO_EMAIL,
+                                         to=['%s <%s>' % (user, user.email)])
+        msg.attach_alternative(html, "text/html")
+        msg.send(fail_silently=True)
+        
+        logging.user(self.user, "~BB~FM~SBSending launch TT end email for user: %s months, %s" % (months_ago, self.user.email))
     
     def grace_period_email_sent(self, force=False):
         emails_sent = MSentEmail.objects.filter(receiver_user_id=self.user.pk,
@@ -801,7 +897,7 @@ NewsBlur""" % {'user': self.user.username, 'feeds': subs.count()}
         if self.grace_period_email_sent(force=force):
             return
             
-        if self.premium_expire < datetime.datetime.now():
+        if self.premium_expire and self.premium_expire < datetime.datetime.now():
             self.premium_expire = datetime.datetime.now()
         self.save()
         
@@ -991,7 +1087,39 @@ def blank_authenticate(username, password=""):
     encoded_username = authenticate(username=username, password=username)
     if encoded_blank == hash or encoded_username == user:
         return user
-            
+
+# Unfinished
+class MEmailUnsubscribe(mongo.Document):
+    user_id = mongo.IntField()
+    email_type = mongo.StringField()
+    date = mongo.DateTimeField(default=datetime.datetime.now)
+    
+    EMAIL_TYPE_FOLLOWS = 'follows'
+    EMAIL_TYPE_REPLIES = 'replies'
+    EMAIL_TYOE_PRODUCT = 'product'
+    
+    meta = {
+        'collection': 'email_unsubscribes',
+        'allow_inheritance': False,
+        'indexes': ['user_id', 
+                    {'fields': ['user_id', 'email_type'], 
+                     'unique': True,
+                     'types': False}],
+    }
+    
+    def __unicode__(self):
+        return "%s unsubscribed from %s on %s" % (self.user_id, self.email_type, self.date)
+    
+    @classmethod
+    def user(cls, user_id):
+        unsubs = cls.objects(user_id=user_id)
+        return unsubs
+    
+    @classmethod
+    def unsubscribe(cls, user_id, email_type):
+        cls.objects.create()
+
+
 class MSentEmail(mongo.Document):
     sending_user_id = mongo.IntField()
     receiver_user_id = mongo.IntField()
@@ -1018,6 +1146,7 @@ class PaymentHistory(models.Model):
     payment_date = models.DateTimeField()
     payment_amount = models.IntegerField()
     payment_provider = models.CharField(max_length=20)
+    payment_identifier = models.CharField(max_length=100, null=True)
     
     def __unicode__(self):
         return "[%s] $%s/%s" % (self.payment_date.strftime("%Y-%m-%d"), self.payment_amount,
@@ -1034,67 +1163,112 @@ class PaymentHistory(models.Model):
     
     @classmethod
     def report(cls, months=26):
-        def _counter(start_date, end_date):
-            payments = PaymentHistory.objects.filter(payment_date__gte=start_date, payment_date__lte=end_date)
-            payments = payments.aggregate(avg=Avg('payment_amount'), 
-                                          sum=Sum('payment_amount'), 
-                                          count=Count('user'))
+        def _counter(start_date, end_date, payments=None):
+            if not payments:
+                payments = PaymentHistory.objects.filter(payment_date__gte=start_date, payment_date__lte=end_date)
+                payments = payments.aggregate(avg=Avg('payment_amount'), 
+                                              sum=Sum('payment_amount'), 
+                                              count=Count('user'))
             print "%s-%02d-%02d - %s-%02d-%02d:\t$%.2f\t$%-6s\t%-4s" % (
                 start_date.year, start_date.month, start_date.day,
                 end_date.year, end_date.month, end_date.day,
                 round(payments['avg'] if payments['avg'] else 0, 2), payments['sum'] if payments['sum'] else 0, payments['count'])
-            return payments['sum']
+            return payments
 
         print "\nMonthly Totals:"
-        month_totals = {}
         for m in reversed(range(months)):
             now = datetime.datetime.now()
             start_date = datetime.datetime(now.year, now.month, 1) - dateutil.relativedelta.relativedelta(months=m)
             end_time = start_date + datetime.timedelta(days=31)
             end_date = datetime.datetime(end_time.year, end_time.month, 1) - datetime.timedelta(seconds=1)
-            total = _counter(start_date, end_date)
-            month_totals[start_date.strftime("%Y-%m")] = total
+            total = _counter(start_date, end_date)['sum']
+
+        print "\nMTD Totals:"
+        years = datetime.datetime.now().year - 2009
+        this_mtd_avg = 0
+        last_mtd_avg = 0
+        last_mtd_sum = 0
+        this_mtd_sum = 0
+        last_mtd_count = 0
+        this_mtd_count = 0
+        for y in reversed(range(years)):
+            now = datetime.datetime.now()
+            start_date = datetime.datetime(now.year, now.month, 1) - dateutil.relativedelta.relativedelta(years=y)
+            end_date = now - dateutil.relativedelta.relativedelta(years=y)
+            if end_date > now: end_date = now
+            count = _counter(start_date, end_date)
+            if end_date.year != now.year:
+                last_mtd_avg = count['avg']
+                last_mtd_sum = count['sum']
+                last_mtd_count = count['count']
+            else:
+                this_mtd_avg = count['avg']
+                this_mtd_sum = count['sum']
+                this_mtd_count = count['count']
 
         print "\nCurrent Month Totals:"
-        month_totals = {}
         years = datetime.datetime.now().year - 2009
+        last_month_avg = 0
+        last_month_sum = 0
+        last_month_count = 0
         for y in reversed(range(years)):
             now = datetime.datetime.now()
             start_date = datetime.datetime(now.year, now.month, 1) - dateutil.relativedelta.relativedelta(years=y)
             end_time = start_date + datetime.timedelta(days=31)
             end_date = datetime.datetime(end_time.year, end_time.month, 1) - datetime.timedelta(seconds=1)
-            if end_date > now: end_date = now
-            month_totals[start_date.strftime("%Y-%m")] = _counter(start_date, end_date)
+            if end_date > now:
+                payments = {'avg': this_mtd_avg / (max(1, last_mtd_avg) / float(max(1, last_month_avg))), 
+                            'sum': int(round(this_mtd_sum / (max(1, last_mtd_sum) / float(max(1, last_month_sum))))), 
+                            'count': int(round(this_mtd_count / (max(1, last_mtd_count) / float(max(1, last_month_count)))))}
+                _counter(start_date, end_date, payments=payments)
+            else:
+                count = _counter(start_date, end_date)
+                last_month_avg = count['avg']
+                last_month_sum = count['sum']
+                last_month_count = count['count']
 
-        print "\nMTD Totals:"
-        month_totals = {}
+        print "\nYTD Totals:"
         years = datetime.datetime.now().year - 2009
+        this_ytd_avg = 0
+        last_ytd_avg = 0
+        this_ytd_sum = 0
+        last_ytd_sum = 0
+        this_ytd_count = 0
+        last_ytd_count = 0
         for y in reversed(range(years)):
             now = datetime.datetime.now()
-            start_date = datetime.datetime(now.year, now.month, 1) - dateutil.relativedelta.relativedelta(years=y)
+            start_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y)
             end_date = now - dateutil.relativedelta.relativedelta(years=y)
-            if end_date > now: end_date = now
-            month_totals[start_date.strftime("%Y-%m")] = _counter(start_date, end_date)
+            count = _counter(start_date, end_date)
+            if end_date.year != now.year:
+                last_ytd_avg = count['avg']
+                last_ytd_sum = count['sum']
+                last_ytd_count = count['count']
+            else:
+                this_ytd_avg = count['avg']
+                this_ytd_sum = count['sum']
+                this_ytd_count = count['count']
 
         print "\nYearly Totals:"
-        year_totals = {}
         years = datetime.datetime.now().year - 2009
+        last_year_avg = 0
+        last_year_sum = 0
+        last_year_count = 0
         for y in reversed(range(years)):
             now = datetime.datetime.now()
             start_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y)
             end_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y-1) - datetime.timedelta(seconds=1)
-            if end_date > now: end_date = now
-            year_totals[now.year - y] = _counter(start_date, end_date)
-
-        print "\nYTD Totals:"
-        year_totals = {}
-        years = datetime.datetime.now().year - 2009
-        for y in reversed(range(years)):
-            now = datetime.datetime.now()
-            start_date = datetime.datetime(now.year, 1, 1) - dateutil.relativedelta.relativedelta(years=y)
-            end_date = now - dateutil.relativedelta.relativedelta(years=y)
-            if end_date > now: end_date = now
-            year_totals[now.year - y] = _counter(start_date, end_date)
+            if end_date > now:
+                payments = {'avg': this_ytd_avg / (max(1, last_ytd_avg) / float(max(1, last_year_avg))), 
+                            'sum': int(round(this_ytd_sum / (max(1, last_ytd_sum) / float(max(1, last_year_sum))))), 
+                            'count': int(round(this_ytd_count / (max(1, last_ytd_count) / float(max(1, last_year_count)))))}
+                _counter(start_date, end_date, payments=payments)
+            else:
+                count = _counter(start_date, end_date)
+                last_year_avg = count['avg']
+                last_year_sum = count['sum']
+                last_year_count = count['count']
+                
 
         total = cls.objects.all().aggregate(sum=Sum('payment_amount'))
         print "\nTotal: $%s" % total['sum']
@@ -1178,6 +1352,52 @@ class MRedeemedCode(mongo.Document):
         logging.user(user, "~FG~BBRedeeming gift code: %s~FW" % gift_code)
         
 
+class MCustomStyling(mongo.Document):
+    user_id = mongo.IntField(unique=True)
+    custom_css = mongo.StringField()
+    custom_js = mongo.StringField()
+    updated_date = mongo.DateTimeField(default=datetime.datetime.now)
+    
+    meta = {
+        'collection': 'custom_styling',
+        'allow_inheritance': False,
+        'indexes': ['user_id'],
+    }
+    
+    def __unicode__(self):
+        return "%s custom style %s/%s %s" % (self.user_id, len(self.custom_css) if self.custom_css else "-", 
+                                             len(self.custom_js) if self.custom_js else "-", self.updated_date)
+    
+    def canonical(self):
+        return {
+            'css': self.custom_css,
+            'js': self.custom_js,
+        }
+    
+    @classmethod
+    def get_user(cls, user_id):
+        try:
+            styling = cls.objects.get(user_id=user_id)
+        except cls.DoesNotExist:
+            return None
+        
+        return styling
+    
+    @classmethod
+    def save_user(cls, user_id, css, js):
+        styling = cls.get_user(user_id)
+        if not css and not js:
+            if styling:
+                styling.delete()
+            return
+
+        if not styling:
+            styling = cls.objects.create(user_id=user_id)
+
+        styling.custom_css = css
+        styling.custom_js = js
+        styling.save()
+        
 class RNewUserQueue:
     
     KEY = "new_user_queue"

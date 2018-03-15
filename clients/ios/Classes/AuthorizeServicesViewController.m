@@ -52,8 +52,6 @@
         self.navigationItem.title = @"Facebook";
     } else if ([type isEqualToString:@"twitter"]) {
         self.navigationItem.title = @"Twitter";
-    } else if ([type isEqualToString:@"appdotnet"]) {
-        self.navigationItem.title = @"App.net";
     }
     NSString *urlAddress = [NSString stringWithFormat:@"%@%@", self.appDelegate.url, url];
     NSURL *fullUrl = [NSURL URLWithString:urlAddress];
@@ -63,7 +61,7 @@
     if (self.fromStory && UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
         UIBarButtonItem *cancelButton = [[UIBarButtonItem alloc]
                                          initWithTitle: @"Cancel"
-                                         style: UIBarButtonSystemItemCancel
+                                         style: UIBarButtonItemStylePlain
                                          target: self
                                          action: @selector(doCancelButton)];
         self.navigationItem.leftBarButtonItem = cancelButton;
@@ -100,13 +98,7 @@
             }];
         } else {
             [self.navigationController popViewControllerAnimated:YES];
-            if ([type isEqualToString:@"google"]) {
-                if (error.length) {
-                    [appDelegate.firstTimeUserAddSitesViewController importFromGoogleReaderFailed:error];
-                } else {
-                    [appDelegate.firstTimeUserAddSitesViewController importFromGoogleReader];
-                }
-            } else if ([type isEqualToString:@"facebook"]) {
+            if ([type isEqualToString:@"facebook"]) {
                 if (error.length) {
                     [self showError:error];
                 } else {

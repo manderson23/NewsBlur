@@ -135,6 +135,7 @@ class MSocialProfile(mongo.Document):
     story_count_history  = mongo.ListField()
     story_days_history   = mongo.DictField()
     story_hours_history  = mongo.DictField()
+    story_email_history  = mongo.ListField()
     feed_classifier_counts = mongo.DictField()
     favicon_color        = mongo.StringField(max_length=6)
     protected            = mongo.BooleanField()
@@ -144,7 +145,6 @@ class MSocialProfile(mongo.Document):
         'collection': 'social_profile',
         'indexes': ['user_id', 'following_user_ids', 'follower_user_ids', 'unfollowed_user_ids', 'requested_follow_user_ids'],
         'allow_inheritance': False,
-        'index_drop_dups': True,
     }
     
     def __unicode__(self):
@@ -780,7 +780,33 @@ class MSocialProfile(mongo.Document):
         if scores:
             self.feed_classifier_counts = scores
             self.save()
+    
+    def save_sent_email(self, max_quota=20):
+        if not self.story_email_history:
+            self.story_email_history = []
+        
+        self.story_email_history.insert(0, datetime.datetime.now())
+        self.story_email_history = self.story_email_history[:max_quota]
+        
+        self.save()
+        
+    def over_story_email_quota(self, quota=1, hours=24):
+        counted = 0
+        day_ago = datetime.datetime.now() - datetime.timedelta(hours=hours)
+        sent_emails = self.story_email_history
 
+        if not sent_emails:
+            sent_emails = []
+
+        for sent_date in sent_emails:
+            if sent_date > day_ago:
+                counted += 1
+        
+        if counted >= quota:
+            return True
+        
+        return False
+        
 class MSocialSubscription(mongo.Document):
     UNREAD_CUTOFF = datetime.datetime.utcnow() - datetime.timedelta(days=settings.DAYS_OF_UNREAD)
 
@@ -924,7 +950,7 @@ class MSocialSubscription(mongo.Document):
 
         read_dates = dict()
         for us in socialsubs:
-            read_dates[us.subscription_user_id] = int(max(us.mark_read_date, cutoff_date).strftime('%s'))            
+            read_dates[us.subscription_user_id] = int(max(us.mark_read_date, cutoff_date).strftime('%s'))
 
         for sub_user_id_group in chunks(subscription_user_ids, 20):
             pipeline = r.pipeline()
@@ -1278,7 +1304,7 @@ class MSocialSubscription(mongo.Document):
             self.mark_read_date = date_delta
 
         unread_story_hashes = self.get_stories(read_filter='unread', limit=500, hashes_only=True,
-                                               cutoff_date=user_profile.unread_cutoff)
+                                               cutoff_date=date_delta)
         stories_db = MSharedStory.objects(user_id=self.subscription_user_id,
                                           story_hash__in=unread_story_hashes)
         story_feed_ids = set()
@@ -1401,10 +1427,11 @@ class MCommentReply(mongo.EmbeddedDocument):
         'ordering': ['publish_date'],
         'id_field': 'reply_id',
         'allow_inheritance': False,
+        'strict': False,
     }
 
 
-class MSharedStory(mongo.Document):
+class MSharedStory(mongo.DynamicDocument):
     user_id                  = mongo.IntField()
     shared_date              = mongo.DateTimeField()
     comments                 = mongo.StringField()
@@ -1441,9 +1468,9 @@ class MSharedStory(mongo.Document):
         'collection': 'shared_stories',
         'indexes': [('user_id', '-shared_date'), ('user_id', 'story_feed_id'), 
                     'shared_date', 'story_guid', 'story_feed_id', 'story_hash'],
-        'index_drop_dups': True,
         'ordering': ['-shared_date'],
         'allow_inheritance': False,
+        'strict': False,
     }
 
     def __unicode__(self):
@@ -1487,7 +1514,7 @@ class MSharedStory(mongo.Document):
             self.story_original_content_z = zlib.compress(self.story_original_content)
             self.story_original_content = None
 
-        self.story_guid_hash = hashlib.sha1(self.story_guid).hexdigest()[:6]
+        self.story_guid_hash = self.guid_hash
         self.story_title = strip_tags(self.story_title)
         self.story_hash = self.feed_guid_hash
 
@@ -1533,7 +1560,7 @@ class MSharedStory(mongo.Document):
             },
         }])
         month_ago = datetime.datetime.now() - datetime.timedelta(days=days)
-        user_ids = stats['result']
+        user_ids = list(stats)
         user_ids = sorted(user_ids, key=lambda x:x['stories'], reverse=True)
         print " ---> Found %s users with more than %s starred stories" % (len(user_ids), stories)
 
@@ -1571,12 +1598,14 @@ class MSharedStory(mongo.Document):
         self.delete()
     
     @classmethod
-    def feed_quota(cls, user_id, feed_id, story_hash, days=1, quota=1):
+    def feed_quota(cls, user_id, story_hash, feed_id=None, days=1, quota=1):
         day_ago = datetime.datetime.now()-datetime.timedelta(days=days)
-        shared_count = cls.objects.filter(user_id=user_id,
-                                          shared_date__gte=day_ago, 
-                                          story_feed_id=feed_id,
-                                          story_hash__nin=[story_hash]).count()
+        params = dict(user_id=user_id,
+                      shared_date__gte=day_ago, 
+                      story_hash__nin=[story_hash])
+        if feed_id:
+            params['story_feed_id'] = feed_id
+        shared_count = cls.objects.filter(**params).count()
 
         return shared_count >= quota
     
@@ -1863,7 +1892,7 @@ class MSharedStory(mongo.Document):
         try:
             r = redis.Redis(connection_pool=settings.REDIS_PUBSUB_POOL)
             feed_id = "social:%s" % self.user_id
-            listeners_count = r.publish(feed_id, 'story:new')
+            listeners_count = r.publish("%s:story" % feed_id, 'story:new:%s' % self.story_hash)
             if listeners_count:
                 logging.debug("   ---> ~FMPublished to %s subscribers" % (listeners_count))
         except redis.ConnectionError:
@@ -1916,7 +1945,10 @@ class MSharedStory(mongo.Document):
                         'story_hash': story['story_hash'],
                         'user_id__in': sharer_user_ids,
                     }
-                    shared_stories = cls.objects.filter(**params)
+                    if params.has_key('story_db_id'):
+                        params.pop('story_db_id')
+                    shared_stories = cls.objects.filter(**params)\
+                                                .hint([('story_hash', 1)])
                 for shared_story in shared_stories:
                     comments = shared_story.comments_with_author()
                     story['reply_count'] += len(comments['replies'])
@@ -1964,7 +1996,8 @@ class MSharedStory(mongo.Document):
                         'story_hash': story['story_hash'],
                         'user_id__in': story['shared_by_friends'],
                     }
-                    shared_stories = cls.objects.filter(**params)
+                    shared_stories = cls.objects.filter(**params)\
+                                                .hint([('story_hash', 1)])
                 for shared_story in shared_stories:
                     comments = shared_story.comments_with_author()
                     story['reply_count'] += len(comments['replies'])
@@ -2051,7 +2084,7 @@ class MSharedStory(mongo.Document):
         return "%sstory/%s/%s" % (
             profile.blurblog_url,
             slugify(self.story_title)[:20],
-            self.guid_hash[:6]
+            self.story_hash
         )
     
     def generate_post_to_service_message(self, truncate=None, include_url=True):
@@ -2750,7 +2783,7 @@ class MSocialServices(mongo.Document):
         self.set_photo('twitter')
         
     def post_to_twitter(self, shared_story):
-        message = shared_story.generate_post_to_service_message(truncate=140)
+        message = shared_story.generate_post_to_service_message(truncate=280)
         shared_story.calculate_image_sizes()
         
         try:
@@ -2817,7 +2850,6 @@ class MInteraction(mongo.Document):
         'collection': 'interactions',
         'indexes': [('user_id', '-date'), 'category', 'with_user_id'],
         'allow_inheritance': False,
-        'index_drop_dups': True,
         'ordering': ['-date'],
     }
     
@@ -2843,6 +2875,24 @@ class MInteraction(mongo.Document):
             'content_id': self.content_id,
             'story_hash': story_hash,
         }
+    
+    @classmethod
+    def trim(cls, user_id, limit=100):
+        user = User.objects.get(pk=user_id)
+        interactions = cls.objects.filter(user_id=user_id).skip(limit)
+        interaction_count = interactions.count(True)
+
+        if interaction_count == 0:
+            interaction_count = cls.objects.filter(user_id=user_id).count()
+            logging.user(user, "~FBNot trimming interactions, only ~SB%s~SN interactions found" % interaction_count)
+            return
+        
+        logging.user(user, "~FBTrimming ~SB%s~SN interactions..." % interaction_count)
+
+        for interaction in interactions:
+            interaction.delete()
+
+        logging.user(user, "~FBDone trimming ~SB%s~SN interactions" % interaction_count)
     
     @classmethod
     def publish_update_to_subscribers(self, user_id):
@@ -3059,7 +3109,6 @@ class MActivity(mongo.Document):
         'collection': 'activities',
         'indexes': [('user_id', '-date'), 'category', 'with_user_id'],
         'allow_inheritance': False,
-        'index_drop_dups': True,
         'ordering': ['-date'],
     }
     
@@ -3084,6 +3133,24 @@ class MActivity(mongo.Document):
             'content_id': self.content_id,
             'story_hash': story_hash,
         }
+    
+    @classmethod
+    def trim(cls, user_id, limit=100):
+        user = User.objects.get(pk=user_id)
+        activities = cls.objects.filter(user_id=user_id).skip(limit)
+        activity_count = activities.count(True)
+
+        if activity_count == 0:
+            activity_count = cls.objects.filter(user_id=user_id).count()
+            logging.user(user, "~FBNot trimming activities, only ~SB%s~SN activities found" % activity_count)
+            return
+        
+        logging.user(user, "~FBTrimming ~SB%s~SN activities..." % activity_count)
+
+        for activity in activities:
+            activity.delete()
+
+        logging.user(user, "~FBDone trimming ~SB%s~SN activities" % activity_count)
         
     @classmethod
     def user(cls, user_id, page=1, limit=4, public=False, categories=None):
@@ -3302,7 +3369,6 @@ class MFollowRequest(mongo.Document):
         'indexes': ['follower_user_id', 'followee_user_id'],
         'ordering': ['-date'],
         'allow_inheritance': False,
-        'index_drop_dups': True,
     }
     
     @classmethod

@@ -2,7 +2,8 @@ package com.newsblur.service;
 
 import android.util.Log;
 
-import com.newsblur.util.ImageCache;
+import com.newsblur.util.FileCache;
+import com.newsblur.util.PrefConstants;
 import com.newsblur.util.PrefsUtils;
 
 public class CleanupService extends SubService {
@@ -15,20 +16,34 @@ public class CleanupService extends SubService {
 
     @Override
     protected void exec() {
-        if (!PrefsUtils.isTimeToCleanup(parent)) return;
-
         gotWork();
 
-        // do cleanup
-        parent.dbHelper.cleanupVeryOldStories();
-        if (!PrefsUtils.isKeepOldStories(parent)) {
-            parent.dbHelper.cleanupReadStories();
+        if (PrefsUtils.isTimeToCleanup(parent)) {
+            com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up old stories");
+            parent.dbHelper.cleanupVeryOldStories();
+            if (!PrefsUtils.isKeepOldStories(parent)) {
+                parent.dbHelper.cleanupReadStories();
+            }
+            PrefsUtils.updateLastCleanupTime(parent);
         }
-        parent.dbHelper.cleanupStoryText();
-        ImageCache imageCache = new ImageCache(parent);
-        imageCache.cleanup(parent.dbHelper.getAllStoryImages());
 
-        PrefsUtils.updateLastCleanupTime(parent);
+        com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up old story texts");
+        parent.dbHelper.cleanupStoryText();
+
+        com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up notification dismissals");
+        parent.dbHelper.cleanupDismissals();
+
+        com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up story image cache");
+        FileCache imageCache = FileCache.asStoryImageCache(parent);
+        imageCache.cleanupUnusedAndOld(parent.dbHelper.getAllStoryImages(), PrefsUtils.getMaxCachedAgeMillis(parent));
+
+        com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up icon cache");
+        FileCache iconCache = FileCache.asIconCache(parent);
+        iconCache.cleanupOld(PrefConstants.CACHE_AGE_VALUE_30D);
+
+        com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up thumbnail cache");
+        FileCache thumbCache = FileCache.asThumbnailCache(parent);
+        thumbCache.cleanupUnusedAndOld(parent.dbHelper.getAllStoryThumbnails(), PrefsUtils.getMaxCachedAgeMillis(parent));
     }
 
     public static boolean running() {
