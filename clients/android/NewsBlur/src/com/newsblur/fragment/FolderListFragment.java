@@ -4,13 +4,13 @@ import java.lang.ref.WeakReference;
 import java.util.HashSet;
 import java.util.Set;
 
-import android.app.LoaderManager;
-import android.content.Loader;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.os.Bundle;
-import android.app.DialogFragment;
+import android.support.v4.app.DialogFragment;
+import android.support.v4.app.LoaderManager;
+import android.support.v4.content.Loader;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -38,6 +38,7 @@ import com.newsblur.activity.GlobalSharedStoriesItemsList;
 import com.newsblur.activity.InfrequentItemsList;
 import com.newsblur.activity.ItemsList;
 import com.newsblur.activity.Main;
+import com.newsblur.activity.NbActivity;
 import com.newsblur.activity.ReadStoriesItemsList;
 import com.newsblur.activity.SavedStoriesItemsList;
 import com.newsblur.activity.SocialFeedItemsList;
@@ -261,6 +262,7 @@ public class FolderListFragment extends NbFragment implements OnCreateContextMen
             if (currentState == StateFilter.SAVED) break;
 			inflater.inflate(R.menu.context_feed, menu);
             if (adapter.isRowAllSharedStories(groupPosition)) {
+                // social feeds
                 menu.removeItem(R.id.menu_delete_feed);
                 menu.removeItem(R.id.menu_choose_folders);
                 menu.removeItem(R.id.menu_unmute_feed);
@@ -268,7 +270,9 @@ public class FolderListFragment extends NbFragment implements OnCreateContextMen
                 menu.removeItem(R.id.menu_notifications);
                 menu.removeItem(R.id.menu_instafetch_feed);
                 menu.removeItem(R.id.menu_intel);
+                menu.removeItem(R.id.menu_rename_feed);
             } else {
+                // normal feeds
                 menu.removeItem(R.id.menu_unfollow);
 
                 Feed feed = adapter.getFeed(groupPosition, childPosition);
@@ -346,8 +350,17 @@ public class FolderListFragment extends NbFragment implements OnCreateContextMen
             markFeedsAsRead(fs);
 			return true;
 		} else if (item.getItemId() == R.id.menu_choose_folders) {
-            DialogFragment chooseFoldersFragment = ChooseFoldersFragment.newInstance(adapter.getFeed(groupPosition, childPosition));
-            chooseFoldersFragment.show(getFragmentManager(), "dialog");
+            Feed feed = adapter.getFeed(groupPosition, childPosition);
+            if (feed != null) {
+                DialogFragment chooseFoldersFragment = ChooseFoldersFragment.newInstance(feed);
+                chooseFoldersFragment.show(getFragmentManager(), "dialog");
+            }
+        } else if (item.getItemId() == R.id.menu_rename_feed) {
+            Feed feed = adapter.getFeed(groupPosition, childPosition);
+            if (feed != null) {
+                DialogFragment renameFeedFragment = RenameFeedFragment.newInstance(feed);
+                renameFeedFragment.show(getFragmentManager(), "dialog");
+            }
         } else if (item.getItemId() == R.id.menu_mute_feed) {
             Set<String> feedIds = new HashSet<String>();
             feedIds.add(adapter.getFeed(groupPosition, childPosition).feedId);
@@ -371,7 +384,7 @@ public class FolderListFragment extends NbFragment implements OnCreateContextMen
 	}
 
     private void markFeedsAsRead(FeedSet fs) {
-        FeedUtils.markRead(getActivity(), fs, null, null, R.array.mark_all_read_options, false);
+        FeedUtils.markRead(((NbActivity) getActivity()), fs, null, null, R.array.mark_all_read_options, false);
         adapter.lastFeedViewedId = fs.getSingleFeed();
         adapter.lastFolderViewed = fs.getFolderName();
     }

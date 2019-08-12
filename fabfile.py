@@ -715,7 +715,7 @@ def setup_sudoers(user=None):
     sudo('chmod 0440 /etc/sudoers.d/sclay')
 
 def setup_nginx():
-    NGINX_VERSION = '1.11.8'
+    NGINX_VERSION = '1.15.8'
     with cd(env.VENDOR_PATH), settings(warn_only=True):
         sudo("groupadd nginx")
         sudo("useradd -g nginx -d /var/www/htdocs -s /bin/false nginx")
@@ -785,18 +785,27 @@ def setup_staging():
         run('touch logs/newsblur.log')
 
 def setup_node_app():
-    sudo('curl -sL https://deb.nodesource.com/setup_7.x | sudo -E bash -')
-    sudo('apt-get install -y nodejs-dev')
+    sudo('curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -')
+    sudo('apt-get install -y nodejs')
     # run('curl -L https://npmjs.org/install.sh | sudo sh')
-    sudo('apt-get install npm')
+    # sudo('apt-get install npm')
+    sudo('sudo npm install -g npm')
     sudo('npm install -g supervisor')
     sudo('ufw allow 8888')
+    sudo('ufw allow 4040')
 
-def config_node():
+def config_node(full=False):
     sudo('rm -fr /etc/supervisor/conf.d/node.conf')
     put('config/supervisor_node_unread.conf', '/etc/supervisor/conf.d/node_unread.conf', use_sudo=True)
     put('config/supervisor_node_unread_ssl.conf', '/etc/supervisor/conf.d/node_unread_ssl.conf', use_sudo=True)
     put('config/supervisor_node_favicons.conf', '/etc/supervisor/conf.d/node_favicons.conf', use_sudo=True)
+    put('config/supervisor_node_text.conf', '/etc/supervisor/conf.d/node_text.conf', use_sudo=True)
+    
+    if full:
+        run("rm -fr /srv/newsblur/node/node_modules")
+        with cd(os.path.join(env.NEWSBLUR_PATH, "node")):
+            run("npm install")
+    
     sudo('supervisorctl reload')
 
 @parallel
@@ -820,6 +829,7 @@ def copy_certificates():
     put(os.path.join(env.SECRETS_PATH, 'certificates/ios/aps_development.pem'), cert_path)
     put(os.path.join(env.SECRETS_PATH, 'certificates/ios/aps.pem'), cert_path)
     run('cat %s/newsblur.com.pem > %s/newsblur.pem' % (cert_path, cert_path))
+    run('echo "\n" >> %s/newsblur.pem' % (cert_path))
     run('cat %s/newsblur.com.key >> %s/newsblur.pem' % (cert_path, cert_path))
 
 @parallel
@@ -860,6 +870,7 @@ def setup_haproxy(debug=False):
     if debug:
         put('config/debug_haproxy.conf', '/etc/haproxy/haproxy.cfg', use_sudo=True)
     else:
+        build_haproxy()
         put(os.path.join(env.SECRETS_PATH, 'configs/haproxy.conf'), 
             '/etc/haproxy/haproxy.cfg', use_sudo=True)
     sudo('echo "ENABLED=1" | sudo tee /etc/default/haproxy')
@@ -871,7 +882,7 @@ def setup_haproxy(debug=False):
     sudo('update-rc.d -f haproxy defaults')
 
     sudo('/etc/init.d/haproxy stop')
-    run('sleep 1')
+    run('sleep 5')
     sudo('/etc/init.d/haproxy start')
 
 def config_haproxy(debug=False):
@@ -896,7 +907,7 @@ def build_haproxy():
     maintenance_servers = ['app20']
     ignore_servers = []
     
-    for group_type in ['app', 'push', 'work', 'node_socket', 'node_favicon', 'www']:
+    for group_type in ['app', 'push', 'work', 'node_socket', 'node_favicon', 'node_text', 'www']:
         group_type_name = group_type
         if 'node' in group_type:
             group_type_name = 'node'
@@ -914,6 +925,8 @@ def build_haproxy():
                 port = 81
             if group_type == 'node_socket':
                 port = 8888
+            if group_type == 'node_text':
+                port = 4040
             if group_type in ['app', 'push']:
                 port = 8000
             address = "%s:%s" % (server['address'], port)
@@ -1046,38 +1059,38 @@ def setup_postgres(standby=False):
     sudo('echo "deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list')
     sudo('wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -')
     sudo('apt-get update')
-    sudo('apt-get -y install postgresql-10 postgresql-client-10 postgresql-contrib-10 libpq-dev')
-    put('config/postgresql.conf', '/etc/postgresql/10/main/postgresql.conf', use_sudo=True)
-    put('config/postgres_hba.conf', '/etc/postgresql/10/main/pg_hba.conf', use_sudo=True)
-    sudo('mkdir /var/lib/postgresql/10/archive')
-    sudo('chown -R postgres.postgres /etc/postgresql/10/main')
-    sudo('chown -R postgres.postgres /var/lib/postgresql/10/main')
-    sudo('chown -R postgres.postgres /var/lib/postgresql/10/archive')
+    sudo('apt-get -y install postgresql-9.4 postgresql-client-9.4 postgresql-contrib-9.4 libpq-dev')
+    put('config/postgresql.conf', '/etc/postgresql/9.4/main/postgresql.conf', use_sudo=True)
+    put('config/postgres_hba.conf', '/etc/postgresql/9.4/main/pg_hba.conf', use_sudo=True)
+    sudo('mkdir -p /var/lib/postgresql/9.4/archive')
+    sudo('chown -R postgres.postgres /etc/postgresql/9.4/main')
+    sudo('chown -R postgres.postgres /var/lib/postgresql/9.4/main')
+    sudo('chown -R postgres.postgres /var/lib/postgresql/9.4/archive')
     sudo('echo "%s" | sudo tee /proc/sys/kernel/shmmax' % shmmax)
     sudo('echo "\nkernel.shmmax = %s" | sudo tee -a /etc/sysctl.conf' % shmmax)
     sudo('echo "\nvm.nr_hugepages = %s\n" | sudo tee -a /etc/sysctl.conf' % hugepages)
     run('echo "ulimit -n 100000" > postgresql.defaults')
     sudo('mv postgresql.defaults /etc/default/postgresql')
     sudo('sysctl -p')
-    sudo('rm /lib/systemd/system/postgresql.service') # Ubuntu 16 has wrong default
+    sudo('rm -f /lib/systemd/system/postgresql.service') # Ubuntu 16 has wrong default
     sudo('systemctl daemon-reload')
     sudo('systemctl enable postgresql')
 
     if standby:
-        put('config/postgresql_recovery.conf', '/var/lib/postgresql/10/recovery.conf', use_sudo=True)
-        sudo('chown -R postgres.postgres /var/lib/postgresql/10/recovery.conf')
+        put('config/postgresql_recovery.conf', '/var/lib/postgresql/9.4/recovery.conf', use_sudo=True)
+        sudo('chown -R postgres.postgres /var/lib/postgresql/9.4/recovery.conf')
 
     sudo('/etc/init.d/postgresql stop')
     sudo('/etc/init.d/postgresql start')
 
 def config_postgres(standby=False):
-    put('config/postgresql.conf', '/etc/postgresql/10/main/postgresql.conf', use_sudo=True)
-    put('config/postgres_hba.conf', '/etc/postgresql/10/main/pg_hba.conf', use_sudo=True)
-    sudo('chown postgres.postgres /etc/postgresql/10/main/postgresql.conf')
+    put('config/postgresql.conf', '/etc/postgresql/9.4/main/postgresql.conf', use_sudo=True)
+    put('config/postgres_hba.conf', '/etc/postgresql/9.4/main/pg_hba.conf', use_sudo=True)
+    sudo('chown postgres.postgres /etc/postgresql/9.4/main/postgresql.conf')
     run('echo "ulimit -n 100000" > postgresql.defaults')
     sudo('mv postgresql.defaults /etc/default/postgresql')
     
-    sudo('/etc/init.d/postgresql reload 10')
+    sudo('/etc/init.d/postgresql reload 9.4')
 
 def upgrade_postgres():
     sudo('su postgres -c "/usr/lib/postgresql/10/bin/pg_upgrade -b /usr/lib/postgresql/9.4/bin -B /usr/lib/postgresql/10/bin -d /var/lib/postgresql/9.4/main -D /var/lib/postgresql/10/main"')
@@ -1088,18 +1101,17 @@ def copy_postgres_to_standby(master='db01'):
     # Make sure you can ssh from master to slave and back with the postgres user account.
     # Need to give postgres accounts keys in authroized_keys.
 
-    # local: fab host:old copy_ssh_keys:postgres,private=True
-    # new: ssh old
-    # new: sudo su postgres -c "rsync old"
+    # local: fab host:new copy_ssh_keys:postgres,private=True
     # new: sudo su postgres; ssh old
+    # new: sudo su postgres; ssh db_pgsql
     # old: sudo su postgres; ssh new
     # old: sudo su postgres -c "psql -c \"SELECT pg_start_backup('label', true)\""
     sudo('systemctl stop postgresql')
-    sudo('mkdir -p /var/lib/postgresql/10/archive')
-    sudo('chown postgres.postgres /var/lib/postgresql/10/archive')
+    sudo('mkdir -p /var/lib/postgresql/9.4/archive')
+    sudo('chown postgres.postgres /var/lib/postgresql/9.4/archive')
     with settings(warn_only=True):
-        sudo('su postgres -c "rsync -Pav -e \'ssh -i ~postgres/.ssh/newsblur.key\' --stats --progress postgres@%s:/var/lib/postgresql/10/main /var/lib/postgresql/10/ --exclude postmaster.pid"' % master)
-    put('config/postgresql_recovery.conf', '/var/lib/postgresql/10/main/recovery.conf', use_sudo=True)
+        sudo('su postgres -c "rsync -Pav -e \'ssh -i ~postgres/.ssh/newsblur.key\' --stats --progress postgres@%s:/var/lib/postgresql/9.4/main /var/lib/postgresql/9.4/ --exclude postmaster.pid"' % master)
+    put('config/postgresql_recovery.conf', '/var/lib/postgresql/9.4/main/recovery.conf', use_sudo=True)
     sudo('systemctl start postgresql')
     # old: sudo su postgres -c "psql -c \"SELECT pg_stop_backup()\""
     
@@ -1414,9 +1426,9 @@ def copy_spam():
 
 DO_SIZES = {
     '1': 's-1vcpu-1gb',
-    '2:': 's-1vcpu-2gb',
-    '4:': 's-2vcpu-4gb',
-    '8:': 's-4vcpu-8gb',
+    '2': 's-1vcpu-2gb',
+    '4': 's-2vcpu-4gb',
+    '8': 's-4vcpu-8gb',
     '16': 's-6vcpu-16gb',
     '32': 's-8vcpu-32gb',
     '48': 's-12vcpu-48gb',
@@ -1624,6 +1636,7 @@ def deploy_node():
         run('sudo supervisorctl restart node_unread')
         run('sudo supervisorctl restart node_unread_ssl')
         run('sudo supervisorctl restart node_favicons')
+        run('sudo supervisorctl restart node_text')
 
 def gunicorn_restart():
     restart_gunicorn()
@@ -1750,8 +1763,8 @@ def setup_postgres_backups():
     # crontab for postgres backups
     crontab = """
 0 4 * * * /srv/newsblur/venv/newsblur/bin/python /srv/newsblur/utils/backups/backup_psql.py
-0 * * * * sudo find /var/lib/postgresql/10/archive -mtime +1 -exec rm {} \;
-0 * * * * sudo find /var/lib/postgresql/10/archive -type f -mmin +180 -delete"""
+0 * * * * sudo find /var/lib/postgresql/9.4/archive -mtime +1 -exec rm {} \;
+0 * * * * sudo find /var/lib/postgresql/9.4/archive -type f -mmin +180 -delete"""
 
     run('(crontab -l ; echo "%s") | sort - | uniq - | crontab -' % crontab)
     run('crontab -l')

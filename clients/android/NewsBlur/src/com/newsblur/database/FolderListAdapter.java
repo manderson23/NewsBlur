@@ -275,6 +275,7 @@ public class FolderListAdapter extends BaseExpandableListAdapter {
             nameView.setText(f.title);
             nameView.setTextSize(textSize * defaultTextSize_childName);
             ImageView iconView = (ImageView) v.findViewById(R.id.row_feedfavicon);
+            FeedUtils.iconLoader.preCheck(f.faviconUrl, iconView);
             FeedUtils.iconLoader.displayImage(f.faviconUrl, iconView, 0, false);
             TextView neutCounter = ((TextView) v.findViewById(R.id.row_feedneutral));
             TextView posCounter = ((TextView) v.findViewById(R.id.row_feedpositive));
@@ -736,6 +737,8 @@ public class FolderListAdapter extends BaseExpandableListAdapter {
 
     /** Get the cached Feed object for the feed at the given list location. */
     public synchronized Feed getFeed(int groupPosition, int childPosition) {
+        if (groupPosition > activeFolderChildren.size()) return null;
+        if (childPosition > activeFolderChildren.get(groupPosition).size()) return null;
         return activeFolderChildren.get(groupPosition).get(childPosition);
     }
 

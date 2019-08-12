@@ -50,7 +50,6 @@ public class PrefsUtils {
 		edit.putString(PrefConstants.PREF_COOKIE, cookie);
 		edit.putString(PrefConstants.PREF_UNIQUE_LOGIN, userName + "_" + System.currentTimeMillis());
 		edit.commit();
-        NBSyncService.resumeFromInterrupt();
 	}
 
     public static boolean checkForUpgrade(Context context) {
@@ -125,8 +124,6 @@ public class PrefsUtils {
         s.append("username: ").append(getUserDetails(context).username);
         s.append("\n");
         s.append("server: ").append(APIConstants.isCustomServer() ? "default" : "custom");
-        s.append("\n");
-        s.append("memory: ").append(NBSyncService.isMemoryLow() ? "low" : "normal");
         s.append("\n");
         s.append("speed: ").append(NBSyncService.getSpeedInfo());
         s.append("\n");
@@ -230,6 +227,11 @@ public class PrefsUtils {
 		edit.commit();
 		saveUserImage(context, profile.photoUrl);
 	}
+
+    public static String getUserId(Context context) {   
+		SharedPreferences preferences = context.getSharedPreferences(PrefConstants.PREFERENCES, 0);
+        return preferences.getString(PrefConstants.USER_ID, null);
+    }
 
 	public static UserDetails getUserDetails(Context context) {
 		UserDetails user = new UserDetails();
@@ -384,12 +386,12 @@ public class PrefsUtils {
 
     public static StoryListStyle getStoryListStyleForFeed(Context context, String feedId) {
         SharedPreferences prefs = context.getSharedPreferences(PrefConstants.PREFERENCES, 0);
-        return StoryListStyle.valueOf(prefs.getString(PrefConstants.FEED_STORY_LIST_STYLE_PREFIX + feedId, StoryListStyle.LIST.toString()));
+        return StoryListStyle.safeValueOf(prefs.getString(PrefConstants.FEED_STORY_LIST_STYLE_PREFIX + feedId, StoryListStyle.LIST.toString()));
     }
     
     public static StoryListStyle getStoryListStyleForFolder(Context context, String folderName) {
         SharedPreferences prefs = context.getSharedPreferences(PrefConstants.PREFERENCES, 0);
-        return StoryListStyle.valueOf(prefs.getString(PrefConstants.FOLDER_STORY_LIST_STYLE_PREFIX + folderName, StoryListStyle.LIST.toString()));
+        return StoryListStyle.safeValueOf(prefs.getString(PrefConstants.FOLDER_STORY_LIST_STYLE_PREFIX + folderName, StoryListStyle.LIST.toString()));
     }
     
     public static void setStoryListStyleForFolder(Context context, String folderName, StoryListStyle newValue) {
@@ -683,9 +685,16 @@ public class PrefsUtils {
         return prefs.getBoolean(PrefConstants.STORIES_SHOW_PREVIEWS, true);
     }
 
-    public static boolean isShowThumbnails(Context context) {
+    private static boolean isShowThumbnails(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PrefConstants.PREFERENCES, 0);
         return prefs.getBoolean(PrefConstants.STORIES_SHOW_THUMBNAILS,  true);
+    }
+
+    public static ThumbnailStyle getThumbnailStyle(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PrefConstants.PREFERENCES, 0);
+        boolean isShowThumbnails = isShowThumbnails(context);
+        ThumbnailStyle defValue = isShowThumbnails ? ThumbnailStyle.LARGE : ThumbnailStyle.OFF;
+        return ThumbnailStyle.valueOf(prefs.getString(PrefConstants.STORIES_THUMBNAILS_STYLE, defValue.toString()));
     }
 
     public static boolean isAutoOpenFirstUnread(Context context) {

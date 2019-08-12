@@ -2,11 +2,11 @@ package com.newsblur.activity;
 
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
-import android.app.DialogFragment;
-import android.app.FragmentManager;
-import android.net.Uri;
+import android.support.v4.app.DialogFragment;
+import android.support.v4.app.FragmentManager;
 import android.support.v4.widget.SwipeRefreshLayout;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -38,6 +38,7 @@ import com.newsblur.fragment.TextSizeDialogFragment;
 import com.newsblur.service.BootReceiver;
 import com.newsblur.service.NBSyncService;
 import com.newsblur.util.AppConstants;
+import com.newsblur.util.FeedUtils;
 import com.newsblur.util.PrefConstants.ThemeValue;
 import com.newsblur.util.PrefsUtils;
 import com.newsblur.util.StateFilter;
@@ -84,7 +85,7 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
         swipeLayout.setProgressBackgroundColorSchemeResource(UIUtils.getThemedResource(this, R.attr.actionbarBackground, android.R.attr.background));
         swipeLayout.setOnRefreshListener(this);
 
-		fragmentManager = getFragmentManager();
+		fragmentManager = getSupportFragmentManager();
 		folderFeedList = (FolderListFragment) fragmentManager.findFragmentByTag("folderFeedListFragment");
 		folderFeedList.setRetainInstance(true);
         ((FeedIntelligenceSelectorFragment) fragmentManager.findFragmentByTag("feedIntelligenceSelector")).setState(folderFeedList.currentState);
@@ -154,7 +155,7 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
         // will be required, however inefficient
         folderFeedList.hasUpdated();
 
-        NBSyncService.resetReadingSession();
+        NBSyncService.resetReadingSession(FeedUtils.dbHelper);
         NBSyncService.flushRecounts();
 
         updateStatusIndicators();
@@ -316,7 +317,7 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
 			return true;
 		} else if (item.getItemId() == R.id.menu_logout) {
 			DialogFragment newFragment = new LogoutDialogFragment();
-			newFragment.show(getFragmentManager(), "dialog");
+			newFragment.show(getSupportFragmentManager(), "dialog");
 		} else if (item.getItemId() == R.id.menu_settings) {
             Intent settingsIntent = new Intent(this, Settings.class);
             startActivity(settingsIntent);
@@ -335,11 +336,11 @@ public class Main extends NbActivity implements StateChangedListener, SwipeRefre
             return true;
 		} else if (item.getItemId() == R.id.menu_textsize) {
 			TextSizeDialogFragment textSize = TextSizeDialogFragment.newInstance(PrefsUtils.getListTextSize(this), TextSizeDialogFragment.TextSizeType.ListText);
-			textSize.show(getFragmentManager(), TextSizeDialogFragment.class.getName());
+			textSize.show(getSupportFragmentManager(), TextSizeDialogFragment.class.getName());
 			return true;
         } else if (item.getItemId() == R.id.menu_loginas) {
             DialogFragment newFragment = new LoginAsDialogFragment();
-            newFragment.show(getFragmentManager(), "dialog");
+            newFragment.show(getSupportFragmentManager(), "dialog");
             return true;
         } else if (item.getItemId() == R.id.menu_theme_light) {
             PrefsUtils.setSelectedTheme(this, ThemeValue.LIGHT);

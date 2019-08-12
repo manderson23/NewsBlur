@@ -1,14 +1,12 @@
 package com.newsblur.service;
 
-import android.util.Log;
-
 import com.newsblur.util.FileCache;
 import com.newsblur.util.PrefConstants;
 import com.newsblur.util.PrefsUtils;
 
 public class CleanupService extends SubService {
 
-    private static volatile boolean Running = false;
+    public static boolean activelyRunning = false;
 
     public CleanupService(NBSyncService parent) {
         super(parent);
@@ -16,16 +14,17 @@ public class CleanupService extends SubService {
 
     @Override
     protected void exec() {
-        gotWork();
 
-        if (PrefsUtils.isTimeToCleanup(parent)) {
-            com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up old stories");
-            parent.dbHelper.cleanupVeryOldStories();
-            if (!PrefsUtils.isKeepOldStories(parent)) {
-                parent.dbHelper.cleanupReadStories();
-            }
-            PrefsUtils.updateLastCleanupTime(parent);
+        if (!PrefsUtils.isTimeToCleanup(parent)) return;
+
+        activelyRunning = true;
+
+        com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up old stories");
+        parent.dbHelper.cleanupVeryOldStories();
+        if (!PrefsUtils.isKeepOldStories(parent)) {
+            parent.dbHelper.cleanupReadStories();
         }
+        PrefsUtils.updateLastCleanupTime(parent);
 
         com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up old story texts");
         parent.dbHelper.cleanupStoryText();
@@ -44,19 +43,9 @@ public class CleanupService extends SubService {
         com.newsblur.util.Log.d(this.getClass().getName(), "cleaning up thumbnail cache");
         FileCache thumbCache = FileCache.asThumbnailCache(parent);
         thumbCache.cleanupUnusedAndOld(parent.dbHelper.getAllStoryThumbnails(), PrefsUtils.getMaxCachedAgeMillis(parent));
-    }
 
-    public static boolean running() {
-        return Running;
+        activelyRunning = false;
     }
-    @Override
-    protected void setRunning(boolean running) {
-        Running = running;
-    }
-    @Override
-    protected boolean isRunning() {
-        return Running;
-    }
-
+    
 }
         

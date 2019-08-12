@@ -1,5 +1,7 @@
 import requests
+import urllib3
 import zlib
+from simplejson.decoder import JSONDecodeError
 from requests.packages.urllib3.exceptions import LocationParseError
 from socket import error as SocketError
 from mongoengine.queryset import NotUniqueError
@@ -68,9 +70,12 @@ class TextImporter:
         if not resp:
             return
         
-        doc = resp.json()
-        if doc.get('error', False):
-            logging.user(self.request, "~SN~FRFailed~FY to fetch ~FGoriginal text~FY: %s" % doc.get('messages', "[unknown merucry error]"))
+        try:
+            doc = resp.json()
+        except JSONDecodeError:
+            doc = None
+        if not doc or doc.get('error', False):
+            logging.user(self.request, "~SN~FRFailed~FY to fetch ~FGoriginal text~FY: %s" % (doc and doc.get('messages', None) or "[unknown mercury error]"))
             return
         
         text = doc['content']
@@ -183,7 +188,10 @@ class TextImporter:
             mercury_api_key = getattr(settings, 'MERCURY_PARSER_API_KEY', 'abc123')
             headers["content-type"] = "application/json"
             headers["x-api-key"] = mercury_api_key
-            url = "https://mercury.postlight.com/parser?url=%s" % url
+            if settings.DEBUG:
+                url = "http://nb.local.com:4040/rss_feeds/original_text_fetcher?url=%s" % url
+            else:
+                url = "https://www.newsblur.com/rss_feeds/original_text_fetcher?url=%s" % url
             
         try:
             r = requests.get(url, headers=headers, verify=False)
@@ -194,6 +202,7 @@ class TextImporter:
                 requests.models.InvalidURL,
                 requests.models.ChunkedEncodingError,
                 requests.models.ContentDecodingError,
+                urllib3.exceptions.LocationValueError,
                 LocationParseError, OpenSSLError, PyAsn1Error), e:
             logging.user(self.request, "~SN~FRFailed~FY to fetch ~FGoriginal text~FY: %s" % e)
             return

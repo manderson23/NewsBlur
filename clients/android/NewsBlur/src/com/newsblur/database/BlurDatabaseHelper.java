@@ -2,11 +2,12 @@ package com.newsblur.database;
 
 import android.content.ContentValues;
 import android.content.Context;
-import android.content.Loader;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.AsyncTask;
 import android.os.CancellationSignal;
+import android.support.v4.content.AsyncTaskLoader;
+import android.support.v4.content.Loader;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -766,6 +767,7 @@ public class BlurDatabaseHelper {
         Cursor c = dbRO.query(DatabaseConstants.FEED_TABLE, null, selection, selArgs, null, null, null);
         while (c.moveToNext()) {
             Feed f = Feed.fromCursor(c);
+            if(!f.active) continue;
             result += f.positiveCount;
             if ((stateFilter == StateFilter.SOME) || (stateFilter == StateFilter.ALL)) result += f.neutralCount;
             if (stateFilter == StateFilter.ALL) result += f.negativeCount;
@@ -946,7 +948,7 @@ public class BlurDatabaseHelper {
         closeQuietly(c);
 
         // the id to append to or remove from the shared list (the current user)
-        String currentUser = PrefsUtils.getUserDetails(context).id;
+        String currentUser = PrefsUtils.getUserId(context);
 
         // append to set and update DB
         Set<String> newIds = new HashSet<String>(Arrays.asList(sharedUserIds));
@@ -986,6 +988,7 @@ public class BlurDatabaseHelper {
             return null;
         } else {
             c.moveToFirst();
+            // TODO: may not contain col?
             String result = c.getString(c.getColumnIndexOrThrow(DatabaseConstants.STORY_CONTENT));
             c.close();
             return result;
@@ -999,6 +1002,16 @@ public class BlurDatabaseHelper {
         synchronized (RW_MUTEX) {dbRW.insertOrThrow(DatabaseConstants.STORY_TEXT_TABLE, null, values);}
     }
 
+    /**
+     * Get a loader that always returns a null cursor, for fragments that know they will never
+     * have a result (such as muted feeds).
+     */
+    public Loader<Cursor> getNullLoader() {
+        return new AsyncTaskLoader<Cursor>(context) {
+            public Cursor loadInBackground() {return null;}
+        };
+    }
+        
     public Loader<Cursor> getSocialFeedsLoader() {
         return new QueryCursorLoader(context) {
             protected Cursor createCursor() {return getSocialFeedsCursor(cancellationSignal);}
@@ -1241,6 +1254,31 @@ public class BlurDatabaseHelper {
         }
     }
 
+    public void setSessionFeedSet(FeedSet fs) {
+        if (fs == null) {
+            synchronized (RW_MUTEX) {dbRW.delete(DatabaseConstants.SYNC_METADATA_TABLE, DatabaseConstants.SYNC_METADATA_KEY + " = ?", new String[] {DatabaseConstants.SYNC_METADATA_KEY_SESSION_FEED_SET});}
+        } else {
+            ContentValues values = new ContentValues();
+            values.put(DatabaseConstants.SYNC_METADATA_KEY, DatabaseConstants.SYNC_METADATA_KEY_SESSION_FEED_SET);
+            values.put(DatabaseConstants.SYNC_METADATA_VALUE, fs.toCompactSerial());
+            synchronized (RW_MUTEX) {dbRW.insertWithOnConflict(DatabaseConstants.SYNC_METADATA_TABLE, null, values, SQLiteDatabase.CONFLICT_REPLACE);}
+        }
+    }
+        
+    public FeedSet getSessionFeedSet() {
+        FeedSet fs = null;
+        Cursor c = dbRO.query(DatabaseConstants.SYNC_METADATA_TABLE, null, DatabaseConstants.SYNC_METADATA_KEY + " = ?", new String[] {DatabaseConstants.SYNC_METADATA_KEY_SESSION_FEED_SET}, null, null, null, null);
+        if (c.getCount() < 1) return null;
+        c.moveToFirst();
+        fs = FeedSet.fromCompactSerial(c.getString(c.getColumnIndexOrThrow(DatabaseConstants.SYNC_METADATA_VALUE)));
+        closeQuietly(c);
+        return fs;
+    }
+
+    public boolean isFeedSetReady(FeedSet fs) {
+        return fs.equals(getSessionFeedSet());
+    }
+
     public void clearClassifiersForFeed(String feedId) {
         String[] selArgs = new String[] {feedId};
         synchronized (RW_MUTEX) {dbRW.delete(DatabaseConstants.CLASSIFIER_TABLE, DatabaseConstants.CLASSIFIER_ID + " = ?", selArgs);}
@@ -1288,7 +1326,7 @@ public class BlurDatabaseHelper {
      * an ID at which time the placeholder will be removed.
      */
     public void insertCommentPlaceholder(String storyId, String feedId, String commentText) {
-        String userId = PrefsUtils.getUserDetails(context).id;
+        String userId = PrefsUtils.getUserId(context);
         Comment comment = new Comment();
         comment.isPlaceholder = true;
         comment.id = Comment.PLACEHOLDER_COMMENT_ID + storyId + userId;
@@ -1303,7 +1341,7 @@ public class BlurDatabaseHelper {
             // in order to make this method idempotent (so it can be attempted before, during, or after
             // the real comment is done, we have to check for a real one
             if (getComment(storyId, userId) != null) {
-                com.newsblur.util.Log.w(this.getClass().getName(), "failing to insert placeholder comment over live one");
+                com.newsblur.util.Log.i(this.getClass().getName(), "electing not to insert placeholder comment over live one");
                 return;
             }
             dbRW.insertWithOnConflict(DatabaseConstants.COMMENT_TABLE, null, comment.getValues(), SQLiteDatabase.CONFLICT_REPLACE);
@@ -1321,7 +1359,7 @@ public class BlurDatabaseHelper {
     }
 
     public void clearSelfComments(String storyId) {
-        String userId = PrefsUtils.getUserDetails(context).id;
+        String userId = PrefsUtils.getUserId(context);
         synchronized (RW_MUTEX) {dbRW.delete(DatabaseConstants.COMMENT_TABLE, 
                                              DatabaseConstants.COMMENT_STORYID + " = ? AND " + DatabaseConstants.COMMENT_USERID + " = ?", 
                                              new String[]{storyId, userId});}
@@ -1344,7 +1382,7 @@ public class BlurDatabaseHelper {
         closeQuietly(c);
 
         // the new id to append/remove from the liking list (the current user)
-        String currentUser = PrefsUtils.getUserDetails(context).id;
+        String currentUser = PrefsUtils.getUserId(context);
 
         // append to set and update DB
         Set<String> newIds = new HashSet<String>(Arrays.asList(comment.likingUsers));
@@ -1398,7 +1436,7 @@ public class BlurDatabaseHelper {
         Reply reply = new Reply();
         reply.commentId = comment.id;
         reply.text = replyText;
-        reply.userId = PrefsUtils.getUserDetails(context).id;
+        reply.userId = PrefsUtils.getUserId(context);
         reply.date = new Date();
         reply.id = Reply.PLACEHOLDER_COMMENT_ID + storyId + comment.id + reply.userId;
         synchronized (RW_MUTEX) {dbRW.insertWithOnConflict(DatabaseConstants.REPLY_TABLE, null, reply.getValues(), SQLiteDatabase.CONFLICT_REPLACE);}
@@ -1493,6 +1531,12 @@ public class BlurDatabaseHelper {
         }
         closeQuietly(c);
         return result;
+    }
+
+    public void renameFeed(String feedId, String newFeedName) {
+        ContentValues values = new ContentValues();
+        values.put(DatabaseConstants.FEED_TITLE, newFeedName);
+        synchronized (RW_MUTEX) {dbRW.update(DatabaseConstants.FEED_TABLE, values, DatabaseConstants.FEED_ID + " = ?", new String[]{feedId});}
     }
 
     public static void closeQuietly(Cursor c) {

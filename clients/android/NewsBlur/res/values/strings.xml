@@ -19,7 +19,7 @@
     <string name="add_feed_message">Add \"%s\" to your feeds?</string>
     
     <string name="loading">Loading…</string>
-    <string name="orig_text_loading">Fetching text…</string>
+    <string name="orig_text_loading">Fetching story text…</string>
     
     <string name="follow_error">There was a problem following the user. Check your internet connection and try again.</string>
     <string name="unfollow_error">There was a problem unfollowing the user. Check your internet connection and try again.</string>
@@ -35,6 +35,7 @@
     <string name="description_menu">Menu</string>
     
     <string name="title_choose_folders">Choose Folders for Feed %s</string>
+    <string name="title_rename_feed">Rename Feed %s</string>
 	
 	<string name="all_stories_row_title">ALL STORIES</string>
 	<string name="all_stories_title">All Stories</string>
@@ -60,6 +61,7 @@
     <string name="share_this_story">SHARE</string>
     <string name="unshare">DELETE SHARE</string>
     <string name="update_shared">UPDATE COMMENT</string>
+    <string name="feed_name_save">RENAME FEED</string>
 
 	<string name="save_this">SAVE</string>
 	<string name="unsave_this">REMOVE FROM SAVED</string>
@@ -70,7 +72,7 @@
     <string name="overlay_count_toast_1">1 unread story</string>
     <string name="overlay_text">TEXT</string>
     <string name="overlay_story">STORY</string>
-    <string name="text_mode_unavailable">Sorry, the story\'s text could not be extracted.</string>
+    <string name="orig_text_failed">Sorry, the story\'s text could not be extracted.</string>
 
     <string name="state_all">ALL</string>
     <string name="state_unread">UNREAD</string>
@@ -85,6 +87,7 @@
 	<string name="alert_dialog_ok">OKAY</string>
 	<string name="alert_dialog_cancel">CANCEL</string>
 	<string name="alert_dialog_done">DONE</string>
+	<string name="alert_dialog_openlink">OPEN LINK</string>
 	<string name="alert_dialog_openimage">OPEN IMAGE</string>
     <string name="dialog_folders_save">SAVE FOLDERS</string>
     <string name="dialog_story_intel_save">SAVE TRAINING</string>
@@ -155,11 +158,13 @@
     <string name="menu_instafetch_feed">Insta-fetch stories</string>
     <string name="menu_infrequent_cutoff">Infrequent stories per month</string>
     <string name="menu_intel">Intelligence trainer</string>
+    <string name="menu_rename_feed">Rename feed</string>
     <string name="menu_story_list_style_choose">List style…</string>
     <string name="list_style_list">List</string>
-    <string name="list_style_grid">Grid</string>
+    <string name="list_style_grid_f">Grid (fine)</string>
+    <string name="list_style_grid_m">Grid (medium)</string>
+    <string name="list_style_grid_c">Grid (coarse)</string>
     
-    <string name="toast_story_unread">Story marked as unread</string>
     <string name="toast_hold_to_select">Press and hold to select text</string>
 
     <string name="logout_warning">Are you sure you want to log out?</string>
@@ -319,8 +324,25 @@
     <string name="settings_immersive_enter_single_tap">Immersive Mode Via Single Tap</string>
     <string name="settings_show_content_preview">Show Content Preview Text</string>
     <string name="settings_show_thumbnails">Show Image Preview Thumbnails</string>
+    <string name="settings_thumbnails_style">Image Preview Thumbnails</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_enable_notifications">Enable Notifications</string>
+
+    <string name="large">Large</string>
+    <string name="small">Small</string>
+    <string-array name="thumbnails_style_entries">
+        <item>@string/large</item>
+        <item>@string/small</item>
+        <item>@string/off</item>
+    </string-array>
+
+    <string-array name="thumbnails_style_values">
+        <item>LARGE</item>
+        <item>SMALL</item>
+        <item>OFF</item>
+    </string-array>
+
+    <string name="thumbnails_style_value">LARGE</string>
 
     <string name="infrequent_choice_title">Stories from sites with</string>
     <string name="infrequent_5">&lt; 5 STORIES/MONTH</string>
@@ -467,4 +489,7 @@
         <item>@string/whitney_font_prefvalue</item>
     </string-array>
     <string name="default_font_value">DEFAULT</string>
+
+    <string name="story_notification_channel_id">story_notification_channel</string>
+    <string name="story_notification_channel_name">New Stories</string>
 </resources>

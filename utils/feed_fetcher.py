@@ -34,6 +34,7 @@ from django.utils.encoding import smart_unicode
 from utils import json_functions as json
 from celery.exceptions import SoftTimeLimitExceeded
 from utils.twitter_fetcher import TwitterFetcher
+from utils.facebook_fetcher import FacebookFetcher
 from utils.json_fetcher import JSONFetcher
 # from utils.feed_functions import mail_feed_error_to_admin
 
@@ -88,7 +89,7 @@ class FetchFeed:
             logging.debug(u'   ---> [%-30s] ~FM~BKFeed fetched in real-time with fat ping.' % (
                           self.feed.log_title[:30]))
             return FEED_OK, self.fpf
-        
+
         if 'youtube.com' in address:
             try:
                 youtube_feed = self.fetch_youtube(address)
@@ -99,13 +100,20 @@ class FetchFeed:
                               (self.feed.log_title[:30], address))
                 return FEED_ERRHTTP, None
             self.fpf = feedparser.parse(youtube_feed)
-        elif re.match('(https?)?://twitter.com/\w+/?$', qurl(address, remove=['_'])):
+        elif re.match(r'(https?)?://twitter.com/\w+/?$', qurl(address, remove=['_'])):
             twitter_feed = self.fetch_twitter(address)
             if not twitter_feed:
                 logging.debug(u'   ***> [%-30s] ~FRTwitter fetch failed: %s' % 
                               (self.feed.log_title[:30], address))
                 return FEED_ERRHTTP, None
             self.fpf = feedparser.parse(twitter_feed)
+        elif re.match(r'(.*?)facebook.com/\w+/?$', qurl(address, remove=['_'])):
+            facebook_feed = self.fetch_facebook()
+            if not facebook_feed:
+                logging.debug(u'   ***> [%-30s] ~FRFacebook fetch failed: %s' % 
+                              (self.feed.log_title[:30], address))
+                return FEED_ERRHTTP, None
+            self.fpf = feedparser.parse(facebook_feed)
         
         if not self.fpf:
             try:
@@ -126,7 +134,7 @@ class FetchFeed:
                 raw_feed = requests.get(address, headers=headers)
                 if raw_feed.status_code >= 400:
                     logging.debug("   ***> [%-30s] ~FRFeed fetch was %s status code, trying fake user agent: %s" % (self.feed.log_title[:30], raw_feed.status_code, raw_feed.headers))
-                    raw_feed = requests.get(address, headers=self.feed.fetch_headers(fake=True))
+                    raw_feed = requests.get(self.feed.feed_address, headers=self.feed.fetch_headers(fake=True))
                 
                 if raw_feed.content and 'application/json' in raw_feed.headers.get('Content-Type', ""):
                     # JSON Feed
@@ -185,6 +193,10 @@ class FetchFeed:
     def fetch_twitter(self, address=None):
         twitter_fetcher = TwitterFetcher(self.feed, self.options)
         return twitter_fetcher.fetch(address)
+    
+    def fetch_facebook(self):
+        facebook_fetcher = FacebookFetcher(self.feed, self.options)
+        return facebook_fetcher.fetch()
     
     def fetch_json_feed(self, address, headers):
         json_fetcher = JSONFetcher(self.feed, self.options)
@@ -493,6 +505,7 @@ class ProcessFeed:
         stories = []
         for entry in self.fpf.entries:
             story = pre_process_story(entry, self.fpf.encoding)
+            if not story['title'] and not story['story_content']: continue
             if story.get('published') < start_date:
                 start_date = story.get('published')
             if replace_guids:

@@ -14,6 +14,7 @@ class TwitterFetcher:
     
     def __init__(self, feed, options=None):
         self.feed = feed
+        self.address = self.feed.feed_address
         self.options = options or {}
     
     def fetch(self, address=None):
@@ -128,7 +129,7 @@ class TwitterFetcher:
                               (self.feed.log_title[:30], self.address, e))
                 self.feed.save_feed_history(560, "Twitter Error: User not found")
                 return
-            elif 'over capacity' in message:
+            elif 'over capacity' in message or 'Max retries' in message:
                 logging.debug(u'   ***> [%-30s] ~FRTwitter over capacity, ignoring... %s: %s' % 
                               (self.feed.log_title[:30], self.address, e))
                 self.feed.save_feed_history(460, "Twitter Error: Over capacity")
@@ -193,6 +194,7 @@ class TwitterFetcher:
         if user_tweet['in_reply_to_user_id'] == author['id']:
             categories.add('reply-to-self')        
         retweet_author = ""
+        tweet_link = "https://twitter.com/%s/status/%s" % (original_author_name, user_tweet['id'])
         if 'retweeted_status' in user_tweet:
             retweet_author = """Retweeted by 
                                  <a href="https://twitter.com/%s"><img src="%s" style="height: 20px" /></a>
@@ -208,6 +210,7 @@ class TwitterFetcher:
             author = content_tweet['author']
             if not isinstance(author, dict): author = author.__dict__
             author_name = author['screen_name']
+            tweet_link = "https://twitter.com/%s/status/%s" % (author_name, user_tweet['retweeted_status'].id)
         
         tweet_title = user_tweet['full_text']
         tweet_text = linebreaks(content_tweet['full_text'])
@@ -225,9 +228,26 @@ class TwitterFetcher:
                     tweet_text = tweet_text.replace(media['url'], replacement)
                     replaced[media['url']] = True
                 entities += "<img src=\"%s\"> <hr>" % media['media_url_https']
-                if 'photo' not in categories:
-                    categories.add('photo')
-
+                categories.add('photo')
+            if media['type'] == 'video' or media['type'] == 'animated_gif':
+                if media.get('url') and media['url'] in tweet_text:
+                    tweet_title = tweet_title.replace(media['url'], media['display_url'])
+                replacement = "<a href=\"%s\">%s</a>" % (media['expanded_url'], media['display_url'])
+                if not replaced.get(media['url']):
+                    tweet_text = tweet_text.replace(media['url'], replacement)
+                    replaced[media['url']] = True
+                bitrate = 0
+                chosen_variant = None
+                for variant in media['video_info']['variants']:
+                    if not chosen_variant:
+                        chosen_variant = variant
+                    if variant.get('bitrate', 0) > bitrate:
+                        bitrate = variant['bitrate']
+                        chosen_variant = variant
+                if chosen_variant:
+                    entities += "<video src=\"%s\" autoplay loop muted playsinline> <hr>" % chosen_variant['url']
+                categories.add(media['type'])                
+                
         for url in content_tweet['entities'].get('urls', []):
             if url['url'] in tweet_text:
                 replacement = "<a href=\"%s\">%s</a>" % (url['expanded_url'], url['display_url'])
@@ -254,7 +274,7 @@ class TwitterFetcher:
                              Posted by
                                  <a href="https://twitter.com/%s"><img src="%s" style="height: 32px" /></a>
                                  <a href="https://twitter.com/%s">%s</a>
-                            on %s</div>
+                            on <a href="%s">%s</a></div>
                          <div class="NB-twitter-rss-retweet">%s</div>
                          <div class="NB-twitter-rss-stats">%s %s%s %s</div>
                     </div>""" % (
@@ -265,6 +285,7 @@ class TwitterFetcher:
             author['profile_image_url_https'],
             author_name,
             author_name,
+            tweet_link,
             DateFormat(created_date).format('l, F jS, Y g:ia').replace('.',''),
             retweet_author,
             ("<br /><br />" if content_tweet['favorite_count'] or content_tweet['retweet_count'] else ""),

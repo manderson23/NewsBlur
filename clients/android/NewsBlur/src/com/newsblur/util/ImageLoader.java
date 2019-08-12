@@ -34,10 +34,13 @@ public class ImageLoader {
 	private ImageLoader(FileCache fileCache, int emptyRID, int minImgHeight, boolean hideMissing, long memoryCacheSize) {
         this.memoryCache = new MemoryCache(memoryCacheSize);
 		this.fileCache = fileCache;
-		executorService = Executors.newFixedThreadPool(AppConstants.IMAGE_LOADER_THREAD_COUNT);
         this.emptyRID = emptyRID;
         this.minImgHeight = minImgHeight;
         this.hideMissing = hideMissing;
+
+        int threadCount = Runtime.getRuntime().availableProcessors() - 2;
+        if (threadCount < 1) threadCount = 1;
+		executorService = Executors.newFixedThreadPool(threadCount);
 	}
 
     public static ImageLoader asIconLoader(Context context) {
@@ -47,9 +50,26 @@ public class ImageLoader {
     public static ImageLoader asThumbnailLoader(Context context) {
         return new ImageLoader(FileCache.asThumbnailCache(context), android.R.color.transparent, 32, true, (Runtime.getRuntime().maxMemory()/6));
     }
+
+    public static ImageLoader asThumbnailLoader(Context context, FileCache chainCache) {
+        FileCache cache = FileCache.asThumbnailCache(context);
+        cache.addChain(chainCache);
+        return new ImageLoader(cache, android.R.color.transparent, 32, true, (Runtime.getRuntime().maxMemory()/6));
+    }
 	
     public PhotoToLoad displayImage(String url, ImageView imageView, float roundRadius, boolean cropSquare) {
         return displayImage(url, imageView, roundRadius, cropSquare, Integer.MAX_VALUE, false);
+    }
+
+    /**
+     * Synchronously check a URL/View pair to ensure the view isn't showing a stale mapping.  Useful for
+     * legacy listviews that aren't smart enough to un-map a child before re-using it.
+     */ 
+    public void preCheck(String url, ImageView imageView) {
+        String latestMappedUrl = imageViewMappings.get(imageView);
+        if ( (latestMappedUrl != null) && (!latestMappedUrl.equals(url)) ) {
+            imageView.setImageResource(emptyRID);
+        }
     }
 
 	public PhotoToLoad displayImage(String url, ImageView imageView, float roundRadius, boolean cropSquare, int maxDimPX, boolean allowDelay) {
@@ -113,7 +133,7 @@ public class ImageLoader {
             // scrolling, the caller has a few cycles to raise the cancellation flag, saving many resources.
             if (photoToLoad.allowDelay) {
                 try {
-                    Thread.sleep(50);
+                    Thread.sleep(20);
                 } catch (InterruptedException ie) {
                     return;
                 }
